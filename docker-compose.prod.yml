@@ -50,12 +50,8 @@ services:
     env_file: .env
     environment:
       EVE_CALLBACK_URL: http://YOUR_DOMAIN/auth/callback
-      DATABASE_URL: postgresql+asyncpg://postgres:${DB_PASSWORD}@db:5432/eve_app
     volumes:
       - backend_data:/app/data
-    depends_on:
-      - db
-
   frontend:
     image: ghcr.io/zodox-einharjar/einharjar-industries-frontend:latest
     restart: unless-stopped
@@ -63,16 +59,6 @@ services:
       BACKEND_URL: http://backend:8000
     depends_on:
       - backend
-
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: eve_app
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - db_data:/var/lib/postgresql/data
 
   nginx:
     image: nginx:1.25-alpine
@@ -88,4 +74,3 @@ services:
 
 volumes:
   backend_data:
-  db_data:
