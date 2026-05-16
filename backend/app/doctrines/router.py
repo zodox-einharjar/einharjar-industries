@@ -853,8 +853,8 @@ async def add_fit_to_doctrine(doctrine_id: int, body: DoctrineFitAdd):
 @router.patch("/doctrines/{doctrine_id}/fits/{df_id}")
 async def update_doctrine_fit(doctrine_id: int, df_id: int, body: dict):
     target_qty = body.get("target_qty")
-    if not isinstance(target_qty, int) or target_qty < 1:
-        raise HTTPException(status_code=422, detail="target_qty must be a positive integer")
+    if not isinstance(target_qty, int) or target_qty < 0:
+        raise HTTPException(status_code=422, detail="target_qty must be a non-negative integer")
     async with AsyncSessionLocal() as session:
         df = await session.get(DoctrineFit, df_id)
         if not df or df.doctrine_id != doctrine_id:

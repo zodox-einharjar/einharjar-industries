@@ -188,14 +188,14 @@ function CreateDoctrineModal({ locations, onClose, onCreated }: {
   const [addMode, setAddMode]   = useState<'existing' | 'eft'>('existing')
   const [addFitId, setAddFitId] = useState('')
   const [addEft, setAddEft]     = useState('')
-  const [addTarget, setAddTarget] = useState('1')
+  const [addTarget, setAddTarget] = useState('')
 
   useEffect(() => {
     fetch('/api/fits').then(r => r.json()).then(setFitOptions).catch(() => {})
   }, [])
 
   function addPendingFit() {
-    const tgt = Math.max(1, +addTarget || 1)
+    const tgt = addTarget === '' ? 0 : Math.max(0, +addTarget || 0)
     if (addMode === 'existing') {
       const fid = +addFitId
       if (!fid) return
@@ -210,7 +210,7 @@ function CreateDoctrineModal({ locations, onClose, onCreated }: {
       setPendingFits(prev => [...prev, { fitId: null, eft: addEft, label: `${p.fitName} (${p.hull})`, target: tgt }])
       setAddEft('')
     }
-    setAddTarget('1')
+    setAddTarget('')
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -422,7 +422,7 @@ function AddFitModal({ doctrineId, onClose, onAdded }: {
   const [mode, setMode] = useState<'existing' | 'eft'>('existing')
   const [fits, setFits] = useState<FitSummary[]>([])
   const [fitId, setFitId] = useState('')
-  const [target, setTarget] = useState('1')
+  const [target, setTarget] = useState('')
   const [eft, setEft] = useState('')
   const [preview, setPreview] = useState<ReturnType<typeof parseEftPreview>>(null)
   const [error, setError] = useState<string | null>(null)
@@ -455,7 +455,7 @@ function AddFitModal({ doctrineId, onClose, onAdded }: {
       const r = await fetch(`/api/doctrines/${doctrineId}/fits`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fit_id: fid, target_qty: +target || 1 }),
+        body: JSON.stringify({ fit_id: fid, target_qty: target === '' ? 0 : Math.max(0, +target || 0) }),
       })
       if (!r.ok) throw new Error('Failed to add fit')
       onAdded()
