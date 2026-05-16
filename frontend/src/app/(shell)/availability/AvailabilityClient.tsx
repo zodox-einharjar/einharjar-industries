@@ -169,7 +169,9 @@ function Modal({ title, onClose, wide, children }: {
 
 // ── Doctrine modals ───────────────────────────────────────────────────────────
 
-interface PendingFit { fitId: number; label: string; target: number }
+const INPUT_BARE = 'bg-canvas border border-wire rounded px-3 py-1.5 text-[13px] text-primary placeholder:text-faint focus:outline-none focus:border-accent transition-colors'
+
+interface PendingFit { fitId: number | null; eft: string | null; label: string; target: number }
 
 function CreateDoctrineModal({ locations, onClose, onCreated }: {
   locations: Location[]
@@ -183,7 +185,9 @@ function CreateDoctrineModal({ locations, onClose, onCreated }: {
   const [saving, setSaving]     = useState(false)
   const [fitOptions, setFitOptions] = useState<FitSummary[]>([])
   const [pendingFits, setPendingFits] = useState<PendingFit[]>([])
+  const [addMode, setAddMode]   = useState<'existing' | 'eft'>('existing')
   const [addFitId, setAddFitId] = useState('')
+  const [addEft, setAddEft]     = useState('')
   const [addTarget, setAddTarget] = useState('1')
 
   useEffect(() => {
@@ -191,13 +195,21 @@ function CreateDoctrineModal({ locations, onClose, onCreated }: {
   }, [])
 
   function addPendingFit() {
-    const fid = +addFitId
-    if (!fid) return
-    if (pendingFits.some(p => p.fitId === fid)) return
-    const fit = fitOptions.find(f => f.id === fid)
-    if (!fit) return
-    setPendingFits(prev => [...prev, { fitId: fid, label: `${fit.name} (${fit.hull})`, target: Math.max(1, +addTarget || 1) }])
-    setAddFitId('')
+    const tgt = Math.max(1, +addTarget || 1)
+    if (addMode === 'existing') {
+      const fid = +addFitId
+      if (!fid) return
+      if (pendingFits.some(p => p.fitId === fid)) return
+      const fit = fitOptions.find(f => f.id === fid)
+      if (!fit) return
+      setPendingFits(prev => [...prev, { fitId: fid, eft: null, label: `${fit.name} (${fit.hull})`, target: tgt }])
+      setAddFitId('')
+    } else {
+      const p = parseEftPreview(addEft)
+      if (!p) return
+      setPendingFits(prev => [...prev, { fitId: null, eft: addEft, label: `${p.fitName} (${p.hull})`, target: tgt }])
+      setAddEft('')
+    }
     setAddTarget('1')
   }
 
@@ -212,10 +224,20 @@ function CreateDoctrineModal({ locations, onClose, onCreated }: {
       if (!r.ok) throw new Error('Failed to create doctrine')
       const { id: doctrineId } = await r.json()
       for (const pf of pendingFits) {
+        let fitId = pf.fitId
+        if (fitId === null && pf.eft) {
+          const rf = await fetch('/api/fits', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ eft: pf.eft }),
+          })
+          if (!rf.ok) { const d = await rf.json(); throw new Error(d.detail ?? 'Failed to create fit') }
+          fitId = (await rf.json()).id
+        }
         await fetch(`/api/doctrines/${doctrineId}/fits`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fit_id: pf.fitId, target_qty: pf.target }),
+          body: JSON.stringify({ fit_id: fitId, target_qty: pf.target }),
         })
       }
       onCreated()
@@ -227,6 +249,8 @@ function CreateDoctrineModal({ locations, onClose, onCreated }: {
   }
 
   const availableFits = fitOptions.filter(f => !pendingFits.some(p => p.fitId === f.id))
+  const eftPreview = parseEftPreview(addEft)
+  const canAdd = addMode === 'existing' ? !!addFitId : !!eftPreview
 
   return (
     <Modal title="New Doctrine" onClose={onClose} wide>
@@ -252,30 +276,64 @@ function CreateDoctrineModal({ locations, onClose, onCreated }: {
           <label className="text-[11px] text-muted">Fits (optional)</label>
           {pendingFits.length > 0 && (
             <ul className="space-y-1">
-              {pendingFits.map(pf => (
-                <li key={pf.fitId} className="flex items-center gap-2 text-[12px] bg-canvas border border-wire rounded px-3 py-1.5">
-                  <span className="flex-1 text-primary">{pf.label}</span>
-                  <span className="text-muted">×{pf.target}</span>
-                  <button type="button" onClick={() => setPendingFits(prev => prev.filter(p => p.fitId !== pf.fitId))}
-                    className="text-muted hover:text-eve-red leading-none">×</button>
+              {pendingFits.map((pf, i) => (
+                <li key={i} className="flex items-center gap-2 text-[12px] bg-canvas border border-wire rounded px-3 py-1.5">
+                  <span className="flex-1 text-primary truncate">{pf.label}</span>
+                  <span className="text-muted shrink-0">×{pf.target}</span>
+                  <button type="button" onClick={() => setPendingFits(prev => prev.filter((_, j) => j !== i))}
+                    className="text-muted hover:text-eve-red leading-none shrink-0">×</button>
                 </li>
               ))}
             </ul>
           )}
-          <div className="flex gap-2">
-            <select value={addFitId} onChange={e => setAddFitId(e.target.value)} className={`${INPUT} flex-1`}>
-              <option value="">Select fit…</option>
-              {availableFits.map(f => <option key={f.id} value={f.id}>{f.name} ({f.hull})</option>)}
-            </select>
-            <input
-              type="number" min="1" value={addTarget} onChange={e => setAddTarget(e.target.value)}
-              className={`${INPUT} w-16 text-right`} title="Target quantity"
-            />
-            <button type="button" onClick={addPendingFit} disabled={!addFitId}
-              className="px-3 py-1.5 rounded border border-wire text-[12px] text-muted hover:text-primary hover:border-accent disabled:opacity-40 transition-colors">
-              +
-            </button>
+          <div className="flex gap-1 mb-2">
+            {(['existing', 'eft'] as const).map(m => (
+              <button key={m} type="button" onClick={() => setAddMode(m)}
+                className={['text-[11px] px-2 py-0.5 rounded border transition-colors',
+                  addMode === m ? 'border-accent text-accent' : 'border-wire text-muted hover:text-secondary',
+                ].join(' ')}>
+                {m === 'existing' ? 'Existing' : 'EFT'}
+              </button>
+            ))}
           </div>
+          {addMode === 'existing' ? (
+            <div className="flex gap-2">
+              <select value={addFitId} onChange={e => setAddFitId(e.target.value)}
+                className={`${INPUT_BARE} flex-1 min-w-0`}>
+                <option value="">Select fit…</option>
+                {availableFits.map(f => <option key={f.id} value={f.id}>{f.name} ({f.hull})</option>)}
+              </select>
+              <input type="number" min="1" value={addTarget} onChange={e => setAddTarget(e.target.value)}
+                className={`${INPUT_BARE} w-14 text-right shrink-0`} title="Target" />
+              <button type="button" onClick={addPendingFit} disabled={!canAdd}
+                className="px-3 py-1.5 rounded border border-wire text-[12px] text-muted hover:text-primary hover:border-accent disabled:opacity-40 transition-colors shrink-0">+</button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <textarea value={addEft} onChange={e => setAddEft(e.target.value)}
+                placeholder={'[Leshak, My Leshak]\nEntropic Disintegrator Mutaplasmid…'}
+                rows={4}
+                className="bg-canvas border border-wire rounded px-3 py-2 text-[12px] font-mono text-primary placeholder:text-faint focus:outline-none focus:border-accent transition-colors w-full resize-none" />
+              {eftPreview && (
+                <div className="text-[11px] text-muted bg-canvas border border-wire rounded px-3 py-2">
+                  <span className="text-secondary font-medium">{eftPreview.hull}</span>
+                  <span className="mx-1.5">·</span>
+                  <span className="text-primary">{eftPreview.fitName}</span>
+                  <span className="mx-1.5">·</span>
+                  {eftPreview.itemCount} items
+                </div>
+              )}
+              <div className="flex gap-2 items-center">
+                <span className="text-[11px] text-muted">Target</span>
+                <input type="number" min="1" value={addTarget} onChange={e => setAddTarget(e.target.value)}
+                  className={`${INPUT_BARE} w-14 text-right`} />
+                <button type="button" onClick={addPendingFit} disabled={!canAdd}
+                  className="px-3 py-1.5 rounded border border-wire text-[12px] text-muted hover:text-primary hover:border-accent disabled:opacity-40 transition-colors">
+                  Add Fit
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex gap-2 justify-end pt-1">
