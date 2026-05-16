@@ -476,7 +476,27 @@ async def availability(doctrine_id: int | None = None):
                     "status": _AVAIL_STATUS.get(calc["status"], "unknown"),
                 })
 
-    return fits_out
+    fit_meta: dict[int, dict] = {}
+    for doctrine in doctrines:
+        for df in doctrine.doctrine_fits:
+            fit = df.fit
+            if fit.id not in fit_meta:
+                fit_meta[fit.id] = {
+                    "name": fit.name,
+                    "fingerprint": frozenset((i.type_id, i.quantity) for i in fit.items),
+                    "ship_type_id": fit.ship_type_id,
+                    "doctrines": [],
+                }
+            fit_meta[fit.id]["doctrines"].append({"id": doctrine.id, "name": doctrine.name})
+
+    fp_groups: dict[tuple, list] = defaultdict(list)
+    for fit_id, meta in fit_meta.items():
+        key = (meta["ship_type_id"], meta["fingerprint"])
+        fp_groups[key].append({"id": fit_id, "name": meta["name"], "doctrines": meta["doctrines"]})
+
+    duplicate_groups = [{"fits": g} for g in fp_groups.values() if len(g) >= 2]
+
+    return {"fits": fits_out, "duplicate_groups": duplicate_groups}
 
 
 # ── Fits ──────────────────────────────────────────────────────────────────────
@@ -869,44 +889,6 @@ async def remove_fit_from_doctrine(doctrine_id: int, df_id: int):
     async with AsyncSessionLocal() as session:
         await session.execute(delete(DoctrineFit).where(DoctrineFit.id == df_id))
         await session.commit()
-
-
-# ── Fit deduplication ────────────────────────────────────────────────────────
-
-@router.get("/fits/duplicates")
-async def list_duplicate_fits():
-    async with AsyncSessionLocal() as session:
-        fits = (await session.execute(
-            select(Fit).options(
-                selectinload(Fit.items),
-                selectinload(Fit.doctrine_fits).options(selectinload(DoctrineFit.doctrine)),
-            )
-        )).scalars().all()
-
-    groups: dict[tuple, list[Fit]] = defaultdict(list)
-    for fit in fits:
-        key = (fit.ship_type_id, frozenset((i.type_id, i.quantity) for i in fit.items))
-        groups[key].append(fit)
-
-    result = []
-    for group in groups.values():
-        if len(group) < 2:
-            continue
-        result.append({
-            "fits": [
-                {
-                    "id": f.id,
-                    "name": f.name,
-                    "doctrines": [
-                        {"id": df.doctrine.id, "name": df.doctrine.name}
-                        for df in f.doctrine_fits
-                        if df.doctrine is not None
-                    ],
-                }
-                for f in group
-            ]
-        })
-    return result
 
 
 @router.post("/fits/merge")

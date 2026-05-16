@@ -978,18 +978,17 @@ export function AvailabilityClient() {
   async function load() {
     setLoading(true); setError(null)
     try {
-      const [rf, rd, rl, rdups] = await Promise.all([
+      const [rf, rd, rl] = await Promise.all([
         fetch('/api/availability'),
         fetch('/api/doctrines'),
         fetch('/api/locations'),
-        fetch('/api/fits/duplicates'),
       ])
       if (!rf.ok || !rd.ok || !rl.ok) throw new Error()
-      const [fits, docs, locs] = await Promise.all([rf.json(), rd.json(), rl.json()])
-      setAllFits(fits)
+      const [avail, docs, locs] = await Promise.all([rf.json(), rd.json(), rl.json()])
+      setAllFits(avail.fits)
+      setDuplicates(avail.duplicate_groups ?? [])
       setDoctrineInfos(docs)
       setLocations(locs)
-      setDuplicates(rdups.ok ? await rdups.json() : [])
     } catch {
       setError('Failed to load data.')
     } finally {
