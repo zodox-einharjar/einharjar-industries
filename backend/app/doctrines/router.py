@@ -476,25 +476,25 @@ async def availability(doctrine_id: int | None = None):
                     "status": _AVAIL_STATUS.get(calc["status"], "unknown"),
                 })
 
-    fit_meta: dict[int, dict] = {}
-    for doctrine in doctrines:
-        for df in doctrine.doctrine_fits:
-            fit = df.fit
-            if fit.id not in fit_meta:
-                fit_meta[fit.id] = {
-                    "name": fit.name,
-                    "fingerprint": frozenset((i.type_id, i.quantity) for i in fit.items),
-                    "ship_type_id": fit.ship_type_id,
-                    "doctrines": [],
-                }
-            fit_meta[fit.id]["doctrines"].append({"id": doctrine.id, "name": doctrine.name})
+        fit_meta: dict[int, dict] = {}
+        for doctrine in doctrines:
+            for df in doctrine.doctrine_fits:
+                fit = df.fit
+                if fit.id not in fit_meta:
+                    fit_meta[fit.id] = {
+                        "name": fit.name,
+                        "fingerprint": frozenset((i.type_id, i.quantity) for i in fit.items),
+                        "ship_type_id": fit.ship_type_id,
+                        "doctrines": [],
+                    }
+                fit_meta[fit.id]["doctrines"].append({"id": doctrine.id, "name": doctrine.name})
 
-    fp_groups: dict[tuple, list] = defaultdict(list)
-    for fit_id, meta in fit_meta.items():
-        key = (meta["ship_type_id"], meta["fingerprint"])
-        fp_groups[key].append({"id": fit_id, "name": meta["name"], "doctrines": meta["doctrines"]})
+        fp_groups: dict[tuple, list] = defaultdict(list)
+        for fit_id, meta in fit_meta.items():
+            key = (meta["ship_type_id"], meta["fingerprint"])
+            fp_groups[key].append({"id": fit_id, "name": meta["name"], "doctrines": meta["doctrines"]})
 
-    duplicate_groups = [{"fits": g} for g in fp_groups.values() if len(g) >= 2]
+        duplicate_groups = [{"fits": g} for g in fp_groups.values() if len(g) >= 2]
 
     return {"fits": fits_out, "duplicate_groups": duplicate_groups}
 
