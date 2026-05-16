@@ -58,6 +58,20 @@ interface FitSummary { id: number; name: string; hull: string; item_count: numbe
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard && window.isSecureContext) {
+    await copyText(text)
+  } else {
+    const el = document.createElement('textarea')
+    el.value = text
+    el.style.cssText = 'position:fixed;opacity:0'
+    document.body.appendChild(el)
+    el.focus(); el.select()
+    document.execCommand('copy')
+    document.body.removeChild(el)
+  }
+}
+
 const STATUS_DOT: Record<DocStatus, string> = {
   ready: 'bg-eve-green', partial: 'bg-eve-amber', short: 'bg-eve-red', unknown: 'bg-muted',
 }
@@ -635,14 +649,14 @@ function FitRow({ fit, expanded, onToggle, onRemove, onTargetChange }: {
   async function copyEft(e: React.MouseEvent) {
     e.stopPropagation()
     if (!fit.raw_eft) return
-    await navigator.clipboard.writeText(fit.raw_eft)
+    await copyText(fit.raw_eft)
     setEftCopied(true)
     setTimeout(() => setEftCopied(false), 1500)
   }
 
   async function copyMissing(e: React.MouseEvent) {
     e.stopPropagation()
-    await navigator.clipboard.writeText(buildMultibuy(fit.missing_items))
+    await copyText(buildMultibuy(fit.missing_items))
     setMissingCopied(true)
     setTimeout(() => setMissingCopied(false), 1500)
   }
@@ -822,7 +836,7 @@ function DoctrineSection({ doctrine, fits, locations, onReload }: {
   }
 
   async function copyMissing() {
-    await navigator.clipboard.writeText(buildMultibuy(missing))
+    await copyText(buildMultibuy(missing))
     setMissingCopied(true)
     setTimeout(() => setMissingCopied(false), 1500)
   }
@@ -1048,7 +1062,7 @@ export function AvailabilityClient() {
   }, [filteredFits, doctrineInfos])
 
   async function handleReport() {
-    await navigator.clipboard.writeText(buildReport(filteredFits))
+    await copyText(buildReport(filteredFits))
     setReportCopied(true)
     setTimeout(() => setReportCopied(false), 2000)
   }
