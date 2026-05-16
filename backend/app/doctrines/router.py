@@ -850,6 +850,20 @@ async def add_fit_to_doctrine(doctrine_id: int, body: DoctrineFitAdd):
     return {"df_id": df_id, "fit_id": body.fit_id, "target_qty": body.target_qty}
 
 
+@router.patch("/doctrines/{doctrine_id}/fits/{df_id}")
+async def update_doctrine_fit(doctrine_id: int, df_id: int, body: dict):
+    target_qty = body.get("target_qty")
+    if not isinstance(target_qty, int) or target_qty < 1:
+        raise HTTPException(status_code=422, detail="target_qty must be a positive integer")
+    async with AsyncSessionLocal() as session:
+        df = await session.get(DoctrineFit, df_id)
+        if not df or df.doctrine_id != doctrine_id:
+            raise HTTPException(status_code=404)
+        df.target_qty = target_qty
+        await session.commit()
+    return {"df_id": df_id, "target_qty": target_qty}
+
+
 @router.delete("/doctrines/{doctrine_id}/fits/{df_id}", status_code=204)
 async def remove_fit_from_doctrine(doctrine_id: int, df_id: int):
     async with AsyncSessionLocal() as session:

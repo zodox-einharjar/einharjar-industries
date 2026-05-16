@@ -475,14 +475,17 @@ function ItemTable({ rows, targetQty }: { rows: ItemRow[]; targetQty: number }) 
 
 // ── FitRow ────────────────────────────────────────────────────────────────────
 
-function FitRow({ fit, expanded, onToggle, onRemove }: {
+function FitRow({ fit, expanded, onToggle, onRemove, onTargetChange }: {
   fit: FitEntry
   expanded: boolean
   onToggle: () => void
   onRemove: () => void
+  onTargetChange: (dfId: number, newTarget: number) => void
 }) {
   const [eftCopied, setEftCopied] = useState(false)
   const [missingCopied, setMissingCopied] = useState(false)
+  const [editingTarget, setEditingTarget] = useState(false)
+  const [targetDraft, setTargetDraft] = useState(String(fit.target))
 
   const hasMissing = fit.missing_items.length > 0
   const fitCost = Math.max(0, fit.target - (fit.stock ?? 0)) * (fit.import_cost ?? 0)
@@ -510,6 +513,21 @@ function FitRow({ fit, expanded, onToggle, onRemove }: {
     await navigator.clipboard.writeText(buildMultibuy(fit.missing_items))
     setMissingCopied(true)
     setTimeout(() => setMissingCopied(false), 1500)
+  }
+
+  async function saveTarget() {
+    const val = parseInt(targetDraft)
+    if (!isNaN(val) && val >= 1 && val !== fit.target) {
+      await fetch(`/api/doctrines/${fit.doctrine_id}/fits/${fit.df_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_qty: val }),
+      })
+      onTargetChange(fit.df_id, val)
+    } else {
+      setTargetDraft(String(fit.target))
+    }
+    setEditingTarget(false)
   }
 
   return (
@@ -561,7 +579,25 @@ function FitRow({ fit, expanded, onToggle, onRemove }: {
       <div className="flex items-center gap-4 px-3 py-2 bg-canvas border-t border-wire text-[12px] flex-wrap">
         <div className="flex items-center gap-2">
           <span className={`font-mono tabular-nums ${stockTextColor(fit.stock, fit.target)}`}>
-            {fit.stock ?? '—'} / {fit.target}
+            {fit.stock ?? '—'} /{' '}
+            {editingTarget ? (
+              <input
+                type="number" min="1"
+                value={targetDraft}
+                onChange={e => setTargetDraft(e.target.value)}
+                onBlur={saveTarget}
+                onKeyDown={e => { if (e.key === 'Enter') saveTarget(); if (e.key === 'Escape') { setTargetDraft(String(fit.target)); setEditingTarget(false) } }}
+                onClick={e => e.stopPropagation()}
+                autoFocus
+                className="w-12 bg-surface border border-wire rounded px-1 text-right font-mono text-[12px]"
+              />
+            ) : (
+              <span
+                className="cursor-pointer hover:text-accent"
+                onClick={e => { e.stopPropagation(); setTargetDraft(String(fit.target)); setEditingTarget(true) }}
+                title="Click to edit target"
+              >{fit.target}</span>
+            )}
           </span>
           <div className="h-1.5 w-20 bg-wire rounded-full overflow-hidden flex-shrink-0">
             <div
@@ -744,6 +780,9 @@ function DoctrineSection({ doctrine, fits, locations, onReload }: {
                   expanded={expandedFits.has(fit.df_id)}
                   onToggle={() => toggleFit(fit.df_id)}
                   onRemove={() => handleRemoveFit(fit)}
+                  onTargetChange={(dfId, newTarget) =>
+                    setAllFits(prev => prev.map(f => f.df_id === dfId ? { ...f, target: newTarget } : f))
+                  }
                 />
               ))
             )}
