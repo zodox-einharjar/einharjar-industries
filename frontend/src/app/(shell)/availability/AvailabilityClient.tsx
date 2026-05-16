@@ -169,16 +169,37 @@ function Modal({ title, onClose, wide, children }: {
 
 // ── Doctrine modals ───────────────────────────────────────────────────────────
 
+interface PendingFit { fitId: number; label: string; target: number }
+
 function CreateDoctrineModal({ locations, onClose, onCreated }: {
   locations: Location[]
   onClose: () => void
   onCreated: () => void
 }) {
-  const [name, setName] = useState('')
-  const [desc, setDesc] = useState('')
-  const [locId, setLocId] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [name, setName]         = useState('')
+  const [desc, setDesc]         = useState('')
+  const [locId, setLocId]       = useState('')
+  const [error, setError]       = useState<string | null>(null)
+  const [saving, setSaving]     = useState(false)
+  const [fitOptions, setFitOptions] = useState<FitSummary[]>([])
+  const [pendingFits, setPendingFits] = useState<PendingFit[]>([])
+  const [addFitId, setAddFitId] = useState('')
+  const [addTarget, setAddTarget] = useState('1')
+
+  useEffect(() => {
+    fetch('/api/fits').then(r => r.json()).then(setFitOptions).catch(() => {})
+  }, [])
+
+  function addPendingFit() {
+    const fid = +addFitId
+    if (!fid) return
+    if (pendingFits.some(p => p.fitId === fid)) return
+    const fit = fitOptions.find(f => f.id === fid)
+    if (!fit) return
+    setPendingFits(prev => [...prev, { fitId: fid, label: `${fit.name} (${fit.hull})`, target: Math.max(1, +addTarget || 1) }])
+    setAddFitId('')
+    setAddTarget('1')
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault(); setError(null); setSaving(true)
@@ -189,6 +210,14 @@ function CreateDoctrineModal({ locations, onClose, onCreated }: {
         body: JSON.stringify({ name, description: desc || null, location_id: locId ? +locId : null }),
       })
       if (!r.ok) throw new Error('Failed to create doctrine')
+      const { id: doctrineId } = await r.json()
+      for (const pf of pendingFits) {
+        await fetch(`/api/doctrines/${doctrineId}/fits`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fit_id: pf.fitId, target_qty: pf.target }),
+        })
+      }
       onCreated()
     } catch (err: any) {
       setError(err.message)
@@ -197,8 +226,10 @@ function CreateDoctrineModal({ locations, onClose, onCreated }: {
     }
   }
 
+  const availableFits = fitOptions.filter(f => !pendingFits.some(p => p.fitId === f.id))
+
   return (
-    <Modal title="New Doctrine" onClose={onClose}>
+    <Modal title="New Doctrine" onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <p className="text-[12px] text-eve-red">{error}</p>}
         <div className="space-y-1">
@@ -216,6 +247,37 @@ function CreateDoctrineModal({ locations, onClose, onCreated }: {
             {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
         </div>
+
+        <div className="space-y-2">
+          <label className="text-[11px] text-muted">Fits (optional)</label>
+          {pendingFits.length > 0 && (
+            <ul className="space-y-1">
+              {pendingFits.map(pf => (
+                <li key={pf.fitId} className="flex items-center gap-2 text-[12px] bg-canvas border border-wire rounded px-3 py-1.5">
+                  <span className="flex-1 text-primary">{pf.label}</span>
+                  <span className="text-muted">×{pf.target}</span>
+                  <button type="button" onClick={() => setPendingFits(prev => prev.filter(p => p.fitId !== pf.fitId))}
+                    className="text-muted hover:text-eve-red leading-none">×</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex gap-2">
+            <select value={addFitId} onChange={e => setAddFitId(e.target.value)} className={`${INPUT} flex-1`}>
+              <option value="">Select fit…</option>
+              {availableFits.map(f => <option key={f.id} value={f.id}>{f.name} ({f.hull})</option>)}
+            </select>
+            <input
+              type="number" min="1" value={addTarget} onChange={e => setAddTarget(e.target.value)}
+              className={`${INPUT} w-16 text-right`} title="Target quantity"
+            />
+            <button type="button" onClick={addPendingFit} disabled={!addFitId}
+              className="px-3 py-1.5 rounded border border-wire text-[12px] text-muted hover:text-primary hover:border-accent disabled:opacity-40 transition-colors">
+              +
+            </button>
+          </div>
+        </div>
+
         <div className="flex gap-2 justify-end pt-1">
           <button type="button" onClick={onClose} className={BTN_GHOST}>Cancel</button>
           <button type="submit" disabled={saving} className={BTN_PRIMARY}>{saving ? 'Creating…' : 'Create'}</button>
