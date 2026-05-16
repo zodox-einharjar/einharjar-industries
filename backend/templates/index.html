@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}EVE App — Home{% endblock %}
+
+{% block content %}
+{% if character %}
+<div class="row g-4">
+    <div class="col-12">
+        <h4 class="text-light">Welcome, {{ character.character_name }}</h4>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card bg-secondary-subtle border-secondary">
+            <div class="card-body">
+                <h6 class="card-title text-uppercase text-secondary small">Inventory</h6>
+                <p class="text-muted small">FIFO lot tracking across locations.</p>
+                <a href="/inventory" class="btn btn-sm btn-outline-light disabled">Coming soon</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card bg-secondary-subtle border-secondary">
+            <div class="card-body">
+                <h6 class="card-title text-uppercase text-secondary small">Doctrines</h6>
+                <p class="text-muted small">Fit availability and staging shortfalls.</p>
+                <a href="/doctrines" class="btn btn-sm btn-outline-light disabled">Coming soon</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card bg-secondary-subtle border-secondary">
+            <div class="card-body">
+                <h6 class="card-title text-uppercase text-secondary small">Industry</h6>
+                <p class="text-muted small">BOM tracking and cost-of-production.</p>
+                <a href="/industry" class="btn btn-sm btn-outline-light disabled">Coming soon</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="d-flex justify-content-center mt-5">
+    <div class="text-center">
+        <h2 class="text-light mb-3">EVE App</h2>
+        <p class="text-secondary mb-4">Trade, industry, and doctrine management.</p>
+        <a href="/auth/login" class="btn btn-primary">Login with EVE SSO</a>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

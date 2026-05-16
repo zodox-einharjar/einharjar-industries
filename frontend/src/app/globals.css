@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:              #0d0f14;
+  --surface:         #13161f;
+  --surface-raised:  #10131a;
+  --border:          #1e2230;
+  --border-subtle:   #0a0d12;
+  --text-primary:    #e0e4ef;
+  --text-secondary:  #c8cad4;
+  --text-muted:      #7a80a0;
+  --text-faint:      #4a5068;
+  --accent:          #5b9fd4;
+  --green:           #4a9a5a;
+  --amber:           #c07030;
+  --red:             #b04040;
+}

@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.env
+data/*.sqlite
+data/*.db
+*.log
+.DS_Store
+
+# Next.js
+frontend/.next/
+frontend/node_modules/
+frontend/out/
+
+# Docker
+docker-compose.override.yml

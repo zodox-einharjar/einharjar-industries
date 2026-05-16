@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+asyncpg
+pydantic-settings
+httpx
+apscheduler
+jinja2
+python-multipart
+python-jose[cryptography]
+itsdangerous
