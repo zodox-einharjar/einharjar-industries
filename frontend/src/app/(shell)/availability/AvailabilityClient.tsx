@@ -626,10 +626,11 @@ function FitRow({ fit, expanded, onToggle, onRemove, onTargetChange }: {
   if (fit.import_cost != null && fit.import_cost > 0 && fit.staging_price != null)
     markupPct = (fit.staging_price - fit.import_cost) / fit.import_cost * 100
 
-  const bothPrices  = fit.import_cost != null && fit.staging_price != null
-  const jitaCheaper = bothPrices && fit.import_cost! < fit.staging_price!
-  const stagingCls  = bothPrices && !jitaCheaper ? 'text-eve-green font-mono' : 'text-muted font-mono'
-  const importCls   = jitaCheaper ? 'text-accent font-mono' : 'text-muted font-mono'
+  const bothPrices    = fit.import_cost != null && fit.staging_price != null
+  const stagingAbsent = fit.staging_price == null && fit.import_cost != null
+  const jitaCheaper   = stagingAbsent || (bothPrices && fit.import_cost! < fit.staging_price!)
+  const stagingCls    = bothPrices && !jitaCheaper ? 'text-eve-green font-mono' : 'text-muted font-mono'
+  const importCls     = jitaCheaper ? 'text-accent font-mono' : 'text-muted font-mono'
 
   async function copyEft(e: React.MouseEvent) {
     e.stopPropagation()
