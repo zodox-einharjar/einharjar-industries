@@ -45,7 +45,7 @@ configs:
 
 services:
   backend:
-    image: ghcr.io/zodox-einharjar/eve-app-backend:latest
+    image: ghcr.io/zodox-einharjar/einharjar-industries-backend:latest
     restart: unless-stopped
     env_file: .env
     environment:
@@ -57,7 +57,7 @@ services:
       - db
 
   frontend:
-    image: ghcr.io/zodox-einharjar/eve-app-frontend:latest
+    image: ghcr.io/zodox-einharjar/einharjar-industries-frontend:latest
     restart: unless-stopped
     environment:
       BACKEND_URL: http://backend:8000
