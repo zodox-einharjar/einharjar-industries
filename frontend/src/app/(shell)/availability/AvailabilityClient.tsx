@@ -1046,10 +1046,11 @@ export function AvailabilityClient() {
   }, [allFits, activeSystem, belowOnly, search])
 
   const stats = useMemo(() => {
-    const below   = filteredFits.filter(f => f.stock !== null && f.stock < f.target)
-    const cheaper = filteredFits.filter(f => f.import_cost != null && f.staging_price != null && f.import_cost < f.staging_price)
+    const deduped  = dedupeByFitId(filteredFits)
+    const below    = deduped.filter(f => f.stock !== null && f.stock < f.target)
+    const cheaper  = deduped.filter(f => f.import_cost != null && (f.staging_price == null || f.import_cost < f.staging_price))
     const shortfall = below.reduce((sum, f) => sum + (f.target - (f.stock ?? 0)) * (f.import_cost ?? f.jita_price ?? 0), 0)
-    return { tracked: filteredFits.length, belowTarget: below.length, jitaCheaper: cheaper.length, shortfall }
+    return { tracked: deduped.length, belowTarget: below.length, jitaCheaper: cheaper.length, shortfall }
   }, [filteredFits])
 
   const doctrineGroups = useMemo(() => {
@@ -1065,6 +1066,15 @@ export function AvailabilityClient() {
     await copyText(buildReport(filteredFits))
     setReportCopied(true)
     setTimeout(() => setReportCopied(false), 2000)
+  }
+
+  const [allMissingCopied, setAllMissingCopied] = useState(false)
+  async function handleCopyAllMissing() {
+    const items = docMissingItems(filteredFits)
+    if (!items.length) return
+    await copyText(buildMultibuy(items))
+    setAllMissingCopied(true)
+    setTimeout(() => setAllMissingCopied(false), 2000)
   }
 
   if (loading) return <p className="text-muted text-[13px]">Loading…</p>
@@ -1125,6 +1135,10 @@ export function AvailabilityClient() {
 
       {/* Page actions */}
       <div className="flex justify-end gap-2 mb-4">
+        <button onClick={handleCopyAllMissing} disabled={stats.belowTarget === 0}
+          className="px-3 py-1.5 text-[12px] border border-wire text-muted rounded hover:text-secondary transition-colors disabled:opacity-40">
+          {allMissingCopied ? '✓ Copied' : 'Copy All Missing'}
+        </button>
         <button onClick={handleReport}
           className="px-3 py-1.5 text-[12px] border border-wire text-muted rounded hover:text-secondary transition-colors">
           {reportCopied ? '✓ Copied' : 'Report'}
