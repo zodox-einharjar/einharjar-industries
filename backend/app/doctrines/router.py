@@ -871,6 +871,74 @@ async def remove_fit_from_doctrine(doctrine_id: int, df_id: int):
         await session.commit()
 
 
+# ── Fit deduplication ────────────────────────────────────────────────────────
+
+@router.get("/fits/duplicates")
+async def list_duplicate_fits():
+    async with AsyncSessionLocal() as session:
+        fits = (await session.execute(
+            select(Fit).options(
+                selectinload(Fit.items),
+                selectinload(Fit.doctrine_fits).options(selectinload(DoctrineFit.doctrine)),
+            )
+        )).scalars().all()
+
+    groups: dict[tuple, list[Fit]] = defaultdict(list)
+    for fit in fits:
+        key = (fit.ship_type_id, frozenset((i.type_id, i.quantity) for i in fit.items))
+        groups[key].append(fit)
+
+    result = []
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        result.append({
+            "fits": [
+                {
+                    "id": f.id,
+                    "name": f.name,
+                    "doctrines": [
+                        {"id": df.doctrine.id, "name": df.doctrine.name}
+                        for df in f.doctrine_fits
+                        if df.doctrine is not None
+                    ],
+                }
+                for f in group
+            ]
+        })
+    return result
+
+
+@router.post("/fits/merge")
+async def merge_fits(body: dict):
+    keep_id = body.get("keep_id")
+    merge_ids = body.get("merge_ids", [])
+    if not isinstance(keep_id, int) or not merge_ids:
+        raise HTTPException(status_code=422, detail="keep_id and merge_ids required")
+
+    merged = 0
+    async with AsyncSessionLocal() as session:
+        existing_doctrine_ids = set(
+            row[0] for row in (await session.execute(
+                select(DoctrineFit.doctrine_id).where(DoctrineFit.fit_id == keep_id)
+            )).all()
+        )
+        for fit_id in merge_ids:
+            rows = (await session.execute(
+                select(DoctrineFit).where(DoctrineFit.fit_id == fit_id)
+            )).scalars().all()
+            for df in rows:
+                if df.doctrine_id not in existing_doctrine_ids:
+                    df.fit_id = keep_id
+                    existing_doctrine_ids.add(df.doctrine_id)
+            fit = await session.get(Fit, fit_id)
+            if fit:
+                await session.delete(fit)
+            merged += 1
+        await session.commit()
+    return {"merged": merged}
+
+
 # ── Market poll ──────────────────────────────────────────────────────────────
 
 @router.get("/poll-status")

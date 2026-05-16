@@ -123,9 +123,20 @@ function buildReport(fits: FitEntry[]): string {
   return lines.join('\n')
 }
 
+function dedupeByFitId(fits: FitEntry[]): FitEntry[] {
+  const best = new Map<number, FitEntry>()
+  for (const fit of fits) {
+    const shortfall = Math.max(0, fit.target - (fit.stock ?? 0))
+    const prev = best.get(fit.fit_id)
+    const prevShortfall = prev ? Math.max(0, prev.target - (prev.stock ?? 0)) : -1
+    if (shortfall > prevShortfall) best.set(fit.fit_id, fit)
+  }
+  return [...best.values()]
+}
+
 function docMissingItems(fits: FitEntry[]): { name: string; qty: number }[] {
   const acc = new Map<string, number>()
-  for (const fit of fits)
+  for (const fit of dedupeByFitId(fits))
     for (const mi of fit.missing_items)
       acc.set(mi.name, (acc.get(mi.name) ?? 0) + mi.qty)
   return [...acc.entries()].map(([name, qty]) => ({ name, qty }))
@@ -133,7 +144,7 @@ function docMissingItems(fits: FitEntry[]): { name: string; qty: number }[] {
 
 function costToTarget(fits: FitEntry[]): number {
   let total = 0
-  for (const fit of fits) {
+  for (const fit of dedupeByFitId(fits)) {
     const missing = Math.max(0, fit.target - (fit.stock ?? 0))
     if (missing > 0 && fit.import_cost != null)
       total += missing * fit.import_cost
@@ -942,6 +953,9 @@ export function AvailabilityClient() {
   const [showCreate, setShowCreate]   = useState(false)
   const [reportCopied, setReportCopied] = useState(false)
   const [search, setSearch]           = useState('')
+  const [duplicates, setDuplicates]   = useState<{ fits: { id: number; name: string; doctrines: { id: number; name: string }[] }[] }[]>([])
+  const [dupExpanded, setDupExpanded] = useState(false)
+  const [merging, setMerging]         = useState(false)
 
   const belowOnly    = searchParams.get('below') === '1'
   const activeSystem = searchParams.get('system') ?? null
@@ -963,20 +977,36 @@ export function AvailabilityClient() {
   async function load() {
     setLoading(true); setError(null)
     try {
-      const [rf, rd, rl] = await Promise.all([
+      const [rf, rd, rl, rdups] = await Promise.all([
         fetch('/api/availability'),
         fetch('/api/doctrines'),
         fetch('/api/locations'),
+        fetch('/api/fits/duplicates'),
       ])
       if (!rf.ok || !rd.ok || !rl.ok) throw new Error()
       const [fits, docs, locs] = await Promise.all([rf.json(), rd.json(), rl.json()])
       setAllFits(fits)
       setDoctrineInfos(docs)
       setLocations(locs)
+      setDuplicates(rdups.ok ? await rdups.json() : [])
     } catch {
       setError('Failed to load data.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function mergeDuplicates(group: typeof duplicates[number]) {
+    setMerging(true)
+    try {
+      await fetch('/api/fits/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keep_id: group.fits[0].id, merge_ids: group.fits.slice(1).map(f => f.id) }),
+      })
+      await load()
+    } finally {
+      setMerging(false)
     }
   }
 
@@ -1034,6 +1064,49 @@ export function AvailabilityClient() {
           onClose={() => setShowCreate(false)}
           onCreated={() => { setShowCreate(false); load() }}
         />
+      )}
+
+      {/* Duplicate fits banner */}
+      {duplicates.length > 0 && (
+        <div className="mb-4 rounded border border-eve-amber bg-eve-amber/10 overflow-hidden">
+          <button
+            className="w-full flex items-center gap-2 px-4 py-2.5 text-left"
+            onClick={() => setDupExpanded(e => !e)}
+          >
+            <span className="w-2 h-2 rounded-full bg-eve-amber flex-shrink-0" />
+            <span className="text-[13px] text-eve-amber font-medium flex-1">
+              {duplicates.length} duplicate fit{duplicates.length > 1 ? 's' : ''} detected
+            </span>
+            <span className="text-[11px] text-muted">{dupExpanded ? '▲' : '▼'}</span>
+          </button>
+          {dupExpanded && (
+            <div className="border-t border-eve-amber/30 px-4 py-3 space-y-3">
+              {duplicates.map((group, i) => (
+                <div key={i} className="flex items-start gap-3">
+                  <div className="flex-1 space-y-1">
+                    {group.fits.map(f => (
+                      <div key={f.id} className="text-[12px]">
+                        <span className="text-primary font-medium">{f.name}</span>
+                        {f.doctrines.length > 0 && (
+                          <span className="text-muted ml-2">
+                            ({f.doctrines.map(d => d.name).join(', ')})
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => mergeDuplicates(group)}
+                    disabled={merging}
+                    className="px-3 py-1 text-[12px] border border-wire text-muted rounded hover:text-primary hover:border-accent disabled:opacity-40 transition-colors shrink-0"
+                  >
+                    Merge
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Page actions */}
