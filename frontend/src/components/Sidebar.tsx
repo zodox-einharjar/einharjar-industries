@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { useEffect, useState } from 'react'
 
 interface User {
   character_id: number
@@ -30,24 +29,6 @@ function HexLogo() {
   )
 }
 
-function BelowTargetBadge() {
-  const [count, setCount] = useState<number | null>(null)
-
-  useEffect(() => {
-    fetch('/api/doctrines/below-target')
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => d != null && setCount(d.count))
-      .catch(() => {})
-  }, [])
-
-  if (!count) return null
-
-  return (
-    <span className="ml-auto text-[10px] font-semibold bg-eve-amber text-canvas rounded-full px-1.5 leading-[18px] min-w-[18px] text-center">
-      {count}
-    </span>
-  )
-}
 
 const NAV = [
   {
@@ -56,7 +37,7 @@ const NAV = [
   {
     label: 'Fleet',
     items: [
-      { label: 'Doctrines', href: '/availability', badge: <BelowTargetBadge /> },
+      { label: 'Doctrines', href: '/availability' },
     ],
   },
   {

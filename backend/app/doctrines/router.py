@@ -1025,6 +1025,7 @@ async def dashboard():
     doctrine_count = len(doctrines)
     doctrines_fully_stocked = 0
     fits_below_target = 0
+    seen_fit_ids: set[int] = set()
     import_savings = Decimal(0)
     doctrine_summary = []
     alerts = []
@@ -1056,7 +1057,9 @@ async def dashboard():
             if calc["completable"] >= df.target_qty:
                 fits_stocked += 1
             else:
-                fits_below_target += 1
+                if df.fit.id not in seen_fit_ids:
+                    fits_below_target += 1
+            seen_fit_ids.add(df.fit.id)
                 shortfall = df.target_qty - calc["completable"]
                 alerts.append({
                     "type": "fit_short",
