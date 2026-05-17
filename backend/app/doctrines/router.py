@@ -1059,7 +1059,6 @@ async def dashboard():
             else:
                 if df.fit.id not in seen_fit_ids:
                     fits_below_target += 1
-            seen_fit_ids.add(df.fit.id)
                 shortfall = df.target_qty - calc["completable"]
                 alerts.append({
                     "type": "fit_short",
@@ -1083,6 +1082,7 @@ async def dashboard():
                     acc["qty_needed"] += qty_short
                     if row["import_cost"] and row["staging_price"] and row["import_cost"] < row["staging_price"]:
                         import_savings += (row["staging_price"] - row["import_cost"]) * qty_short
+            seen_fit_ids.add(df.fit.id)
 
         if fits_stocked == fits_total:
             doctrines_fully_stocked += 1
