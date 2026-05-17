@@ -1,7 +1,6 @@
 import asyncio
-import bz2
+import json
 import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,6 +15,7 @@ from ..db import AsyncSessionLocal
 from ..models import AppSetting
 from ..scheduler.jobs import reschedule_poll
 from ..sde import get_sde
+from scripts.update_sde import convert as _sde_convert
 
 router = APIRouter(prefix="/settings", dependencies=[Depends(get_current_character)])
 
@@ -101,11 +101,27 @@ async def update_settings(body: SettingsUpdate):
     return await _load_settings()
 
 
-_FUZZWORK_BZ2 = "https://www.fuzzwork.co.uk/dump/sqlite-latest.sqlite.bz2"
+_CCP_LATEST = "https://developers.eveonline.com/static-data/tranquility/latest.jsonl"
+_CCP_ZIP = "https://developers.eveonline.com/static-data/tranquility/eve-online-static-data-{build}-yaml.zip"
+
+
+async def _fetch_ccp_build(client: httpx.AsyncClient) -> tuple[str, str]:
+    """Returns (build_number, release_date_iso) from CCP's latest.jsonl."""
+    resp = await client.get(_CCP_LATEST, timeout=10.0)
+    resp.raise_for_status()
+    for line in resp.text.strip().splitlines():
+        try:
+            obj = json.loads(line)
+            if obj.get("_key") == "sde":
+                return str(obj["buildNumber"]), str(obj.get("releaseDate", ""))
+        except (json.JSONDecodeError, KeyError):
+            continue
+    raise ValueError("Could not parse build number from CCP latest.jsonl")
 
 
 @router.get("/sde-status")
 async def sde_status():
+    sde_path = Path(app_settings.sde_path)
     async with AsyncSessionLocal() as session:
         installed_setting = await session.get(AppSetting, "sde_installed_at")
         remote_setting = await session.get(AppSetting, "sde_remote_modified")
@@ -113,11 +129,9 @@ async def sde_status():
     installed_at = None
     if installed_setting:
         installed_at = installed_setting.value
-    else:
-        sde_path = Path(app_settings.sde_path)
-        if sde_path.exists():
-            mtime = sde_path.stat().st_mtime
-            installed_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+    elif sde_path.exists():
+        mtime = sde_path.stat().st_mtime
+        installed_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
     return {
         "installed_at": installed_at,
@@ -127,23 +141,19 @@ async def sde_status():
 
 @router.get("/sde-check")
 async def sde_check():
-    async with AsyncSessionLocal() as session:
-        remote_setting = await session.get(AppSetting, "sde_remote_modified")
-    stored_remote = remote_setting.value if remote_setting else None
+    sde_path = Path(app_settings.sde_path)
+    build_path = sde_path.with_name("sde_build.txt")
+    stored_build = build_path.read_text().strip() if build_path.exists() else None
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.head(_FUZZWORK_BZ2)
-        remote_last_modified = resp.headers.get("Last-Modified")
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            build, release_date = await _fetch_ccp_build(client)
     except Exception:
         return {"remote_last_modified": None, "update_available": None}
 
-    if not remote_last_modified:
-        return {"remote_last_modified": None, "update_available": None}
-
-    update_available = stored_remote is None or remote_last_modified != stored_remote
+    update_available = stored_build != build or not sde_path.exists()
     return {
-        "remote_last_modified": remote_last_modified,
+        "remote_last_modified": release_date,
         "update_available": update_available,
     }
 
@@ -151,61 +161,41 @@ async def sde_check():
 @router.post("/update-sde")
 async def update_sde():
     sde_path = Path(app_settings.sde_path)
-    sde_dir = sde_path.parent
-    sde_dir.mkdir(parents=True, exist_ok=True)
+    sde_path.parent.mkdir(parents=True, exist_ok=True)
 
-    tmp_bz2: str | None = None
-    tmp_sqlite: str | None = None
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(10.0, read=300.0)
-        ) as client:
-            head_resp = await client.head(_FUZZWORK_BZ2)
-            remote_last_modified = head_resp.headers.get("Last-Modified")
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=httpx.Timeout(10.0, read=600.0),
+    ) as client:
+        try:
+            build, release_date = await _fetch_ccp_build(client)
+        except Exception as e:
+            raise HTTPException(502, f"Could not reach CCP SDE endpoint: {e}")
 
-            fd, tmp_bz2 = tempfile.mkstemp(dir=sde_dir, suffix=".bz2.tmp")
-            os.close(fd)
-            async with client.stream("GET", _FUZZWORK_BZ2) as resp:
-                if not resp.is_success:
-                    raise HTTPException(502, f"Fuzzwork returned {resp.status_code}")
-                with open(tmp_bz2, "wb") as f:
-                    async for chunk in resp.aiter_bytes(65536):
-                        f.write(chunk)
+        url = _CCP_ZIP.format(build=build)
+        chunks: list[bytes] = []
+        async with client.stream("GET", url) as resp:
+            if not resp.is_success:
+                raise HTTPException(502, f"CCP SDE returned {resp.status_code}")
+            async for chunk in resp.aiter_bytes(65536):
+                chunks.append(chunk)
 
-        fd2, tmp_sqlite = tempfile.mkstemp(dir=sde_dir, suffix=".sqlite.tmp")
-        os.close(fd2)
+    zip_data = b"".join(chunks)
 
-        def _decompress() -> None:
-            with bz2.open(tmp_bz2, "rb") as src, open(tmp_sqlite, "wb") as dst:  # type: ignore[arg-type]
-                while chunk := src.read(65536):
-                    dst.write(chunk)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: _sde_convert(zip_data, sde_path))
 
-        await asyncio.get_running_loop().run_in_executor(None, _decompress)
+    sde_path.with_name("sde_build.txt").write_text(build)
+    get_sde.cache_clear()
 
-        os.replace(tmp_sqlite, str(sde_path))
-        tmp_sqlite = None
+    now = datetime.now(timezone.utc).isoformat()
+    async with AsyncSessionLocal() as session:
+        for key, value in (("sde_installed_at", now), ("sde_remote_modified", release_date)):
+            setting = await session.get(AppSetting, key)
+            if setting:
+                setting.value = value
+            else:
+                session.add(AppSetting(key=key, value=value))
+        await session.commit()
 
-        get_sde.cache_clear()
-
-        now = datetime.now(timezone.utc).isoformat()
-        async with AsyncSessionLocal() as session:
-            for key, value in (
-                ("sde_installed_at", now),
-                ("sde_remote_modified", remote_last_modified or ""),
-            ):
-                setting = await session.get(AppSetting, key)
-                if setting:
-                    setting.value = value
-                else:
-                    session.add(AppSetting(key=key, value=value))
-            await session.commit()
-
-        return {"ok": True, "installed_at": now, "remote_last_modified": remote_last_modified}
-
-    finally:
-        for f in (tmp_bz2, tmp_sqlite):
-            if f and os.path.exists(f):
-                try:
-                    os.unlink(f)
-                except OSError:
-                    pass
+    return {"ok": True, "installed_at": now, "remote_last_modified": release_date}

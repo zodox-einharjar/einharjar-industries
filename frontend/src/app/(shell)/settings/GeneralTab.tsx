@@ -103,7 +103,7 @@ export function GeneralTab() {
       if (!r.ok) throw new Error()
       setSdeCheck(await r.json())
     } catch {
-      setSdeError('Failed to reach Fuzzwork — check internet access from the container.')
+      setSdeError('Failed to reach CCP SDE endpoint — check internet access from the container.')
     } finally {
       setSdeChecking(false)
     }
@@ -183,7 +183,7 @@ export function GeneralTab() {
             </div>
           )}
           <p className="text-[11px] text-faint">
-            Static game data (item names, volumes, station names) sourced from Fuzzwork. Update after each EVE patch.
+            Static game data (item names, volumes, station names) sourced from the official CCP SDE. Update after each EVE patch.
           </p>
           {sdeError && <p className="text-eve-red text-[12px]">{sdeError}</p>}
           <div className="flex gap-2">
