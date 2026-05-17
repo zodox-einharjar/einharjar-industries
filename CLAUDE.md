@@ -23,6 +23,14 @@ docker compose up --build
 # App is at http://localhost — nginx routes /auth/* + /api/* to backend, rest to Next.js
 ```
 
+### SDE update (run once, then whenever CCP patches)
+
+```bash
+cd backend && python -m scripts.update_sde
+# Downloads the official CCP SDE, converts to SQLite at data/sqlite-latest.sqlite.
+# Skips download automatically if the build number hasn't changed.
+```
+
 ### Backend (local, no Docker)
 
 ```bash
@@ -47,7 +55,7 @@ There are no tests, no linter, and no Alembic migrations configured. Tables are 
 
 **Migration in progress:** FastAPI routes are being converted from Jinja2+HTMX HTML responses to JSON. New pages are built in `frontend/`. Nginx routes `/api/*` (strips prefix before forwarding) and `/auth/*` to FastAPI; everything else goes to Next.js.
 
-**Static game data** (item names, volumes, station names, solar systems) comes exclusively from the Fuzzwork SDE SQLite at `data/sqlite-latest.sqlite` via `app/sde.py`. Never use ESI for static data.
+**Static game data** (item names, volumes, station names, solar systems) comes exclusively from the official CCP SDE SQLite at `data/sqlite-latest.sqlite` via `app/sde.py`. Never use ESI for static data.
 
 ### Module Map
 
@@ -128,4 +136,4 @@ Availability calc compares staging sell price vs import cost and highlights chea
 | `EVE_CALLBACK_URL` | `http://localhost:8000/auth/callback` | |
 | `ESI_BASE_URL` | `https://esi.evetech.net/latest` | |
 | `ESI_USER_AGENT` | `einharjar-industries/1.0 (your-email@example.com)` | Must include contact email |
-| `SDE_PATH` | `data/sqlite-latest.sqlite` | Fuzzwork SDE SQLite |
+| `SDE_PATH` | `data/sqlite-latest.sqlite` | Official CCP SDE SQLite (built by `scripts/update_sde.py`) |

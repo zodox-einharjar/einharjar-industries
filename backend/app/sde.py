@@ -2,6 +2,62 @@ import sqlite3
 from functools import lru_cache
 from .config import settings
 
+# Official CCP SDE omits packaged volumes for ships; the assembled volume in
+# invTypes is far too large to use for freight cost calculations.
+# These are the in-game packaged volumes keyed by ship groupID.
+_SHIP_GROUP_PACKAGED: dict[int, float] = {
+    29: 500,          # Capsule
+    31: 500,          # Shuttle
+    237: 2_500,       # Corvette
+    25: 2_500,        # Frigate
+    324: 2_500,       # Assault Frigate
+    830: 2_500,       # Covert Ops
+    831: 2_500,       # Interceptor
+    834: 2_500,       # Stealth Bomber
+    893: 2_500,       # Electronic Attack Ship
+    1283: 2_500,      # Expedition Frigate
+    1527: 2_500,      # Logistics Frigate
+    1022: 2_500,      # Prototype Exploration Ship
+    420: 5_000,       # Destroyer
+    1534: 5_000,      # Command Destroyer
+    541: 5_000,       # Interdictor
+    1305: 5_000,      # Tactical Destroyer
+    26: 10_000,       # Cruiser
+    906: 10_000,      # Combat Recon Ship
+    833: 10_000,      # Force Recon Ship
+    358: 10_000,      # Heavy Assault Cruiser
+    894: 10_000,      # Heavy Interdiction Cruiser
+    832: 10_000,      # Logistics
+    963: 10_000,      # Strategic Cruiser
+    1972: 10_000,     # Flag Cruiser
+    419: 15_000,      # Combat Battlecruiser
+    1201: 15_000,     # Attack Battlecruiser
+    540: 15_000,      # Command Ship
+    27: 50_000,       # Battleship
+    898: 50_000,      # Black Ops
+    900: 50_000,      # Marauder
+    28: 20_000,       # Hauler (T1 Industrial)
+    1202: 20_000,     # Blockade Runner
+    380: 20_000,      # Deep Space Transport
+    463: 3_750,       # Mining Barge
+    543: 3_750,       # Exhumer
+    941: 500_000,     # Industrial Command Ship (Orca default)
+    513: 1_000_000,   # Freighter
+    902: 1_000_000,   # Jump Freighter
+    547: 1_000_000,   # Carrier
+    485: 1_000_000,   # Dreadnought
+    4594: 1_000_000,  # Lancer Dreadnought
+    1538: 1_000_000,  # Force Auxiliary
+    883: 1_000_000,   # Capital Industrial Ship (Rorqual)
+    659: 1_000_000,   # Supercarrier
+    30: 10_000_000,   # Titan
+}
+
+# Per-type overrides for ships whose packaged volume differs from the group default.
+_SHIP_TYPE_PACKAGED: dict[int, float] = {
+    42244: 50_000,  # Porpoise — groupID 941 (same as Orca) but packages to 50k m³
+}
+
 
 @lru_cache(maxsize=1)
 def get_sde() -> sqlite3.Connection:
@@ -18,13 +74,8 @@ def type_name(type_id: int) -> str | None:
 
 
 def type_volume(type_id: int) -> float | None:
-    row = get_sde().execute(
-        """SELECT COALESCE(v.volume, t.volume) AS volume
-           FROM invTypes t LEFT JOIN invVolumes v ON t.typeID = v.typeID
-           WHERE t.typeID = ?""",
-        (type_id,),
-    ).fetchone()
-    return float(row["volume"]) if row else None
+    vols = type_volumes([type_id])
+    return vols.get(type_id)
 
 
 def type_names(type_ids: list[int]) -> dict[int, str]:
@@ -42,12 +93,25 @@ def type_volumes(type_ids: list[int]) -> dict[int, float]:
         return {}
     placeholders = ",".join("?" * len(type_ids))
     rows = get_sde().execute(
-        f"""SELECT t.typeID, COALESCE(v.volume, t.volume) AS volume
-            FROM invTypes t LEFT JOIN invVolumes v ON t.typeID = v.typeID
+        f"""SELECT t.typeID, t.volume, t.groupID, g.categoryID
+            FROM invTypes t
+            JOIN invGroups g ON t.groupID = g.groupID
             WHERE t.typeID IN ({placeholders})""",
         type_ids,
     ).fetchall()
-    return {row["typeID"]: float(row["volume"]) for row in rows}
+    result = {}
+    for row in rows:
+        tid = row["typeID"]
+        if row["categoryID"] == 6:  # Ship — use packaged volume for freight
+            vol = (
+                _SHIP_TYPE_PACKAGED.get(tid)
+                or _SHIP_GROUP_PACKAGED.get(row["groupID"])
+                or float(row["volume"] or 0)
+            )
+        else:
+            vol = float(row["volume"] or 0)
+        result[tid] = vol
+    return result
 
 
 def station_name(station_id: int) -> str | None:
@@ -97,7 +161,7 @@ def search_types(query: str, limit: int = 20) -> list[dict]:
 
 
 def region_id_for_station(station_eve_id: int) -> int | None:
-    """Returns regionID for an NPC station from the SDE, or None for player structures."""
+    """Returns regionID for an NPC station, or None for player structures."""
     row = get_sde().execute(
         "SELECT regionID FROM staStations WHERE stationID = ?", (station_eve_id,)
     ).fetchone()
