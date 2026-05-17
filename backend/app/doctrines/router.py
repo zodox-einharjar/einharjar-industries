@@ -921,6 +921,257 @@ async def merge_fits(body: dict):
     return {"merged": merged}
 
 
+# ── Fleet views ──────────────────────────────────────────────────────────────
+
+@router.get("/fleet/fits")
+async def fleet_fits():
+    """Fit-centric view: all fits with per-doctrine stock status."""
+    async with AsyncSessionLocal() as session:
+        doctrines = (await session.execute(
+            select(Doctrine).options(*_DOCTRINE_OPTS)
+        )).scalars().all()
+
+        staging_loc_ids = {d.location_id for d in doctrines if d.location_id}
+        all_type_ids = {
+            item.type_id
+            for d in doctrines if d.location_id
+            for df in d.doctrine_fits
+            for item in df.fit.items
+        }
+
+        all_locs = (await session.execute(select(Location))).scalars().all()
+        jita_loc = next((l for l in all_locs if l.eve_id == 60003760), None)
+        jita_id = jita_loc.id if jita_loc else None
+
+        staging_by_loc: dict[int, dict[int, list]] = {}
+        jita_by_type: dict[int, list] = {}
+        freight_map: dict[int, FreightRoute] = {}
+        loc_fees: dict[int, tuple[float, float]] = {}
+        staging_systems: dict[int, str | None] = {}
+
+        from ..sde import system_name_for_station as _sys, type_names
+        for loc in all_locs:
+            if loc.id in staging_loc_ids:
+                staging_systems[loc.id] = _sys(loc.eve_id) if loc.location_type == "station" else None
+                loc_fees[loc.id] = (loc.broker_fee_pct or 0.0, loc.sales_tax_pct or 0.0)
+
+        if all_type_ids and staging_loc_ids:
+            staging_raw = (await session.execute(
+                select(MarketOrder).where(
+                    MarketOrder.location_id.in_(staging_loc_ids),
+                    MarketOrder.type_id.in_(list(all_type_ids)),
+                    MarketOrder.is_buy.is_(False),
+                )
+            )).scalars().all()
+            for o in staging_raw:
+                staging_by_loc.setdefault(o.location_id, {}).setdefault(o.type_id, []).append(o)
+            for loc_d in staging_by_loc.values():
+                for lst in loc_d.values():
+                    lst.sort(key=lambda o: o.price)
+
+            if jita_id:
+                jita_raw = (await session.execute(
+                    select(MarketOrder).where(
+                        MarketOrder.location_id == jita_id,
+                        MarketOrder.type_id.in_(list(all_type_ids)),
+                        MarketOrder.is_buy.is_(False),
+                    )
+                )).scalars().all()
+                for o in jita_raw:
+                    jita_by_type.setdefault(o.type_id, []).append(o)
+                for lst in jita_by_type.values():
+                    lst.sort(key=lambda o: o.price)
+                routes = (await session.execute(
+                    select(FreightRoute).where(
+                        FreightRoute.from_id == jita_id,
+                        FreightRoute.to_id.in_(staging_loc_ids),
+                    )
+                )).scalars().all()
+                for r in routes:
+                    freight_map[r.to_id] = r
+
+        fits_map: dict[int, dict] = {}
+        for doctrine in doctrines:
+            for df in doctrine.doctrine_fits:
+                fit = df.fit
+                if fit.id not in fits_map:
+                    fits_map[fit.id] = {
+                        "fit_id": fit.id,
+                        "fit_name": fit.name,
+                        "hull": "",
+                        "ship_type_id": fit.ship_type_id,
+                        "doctrines": [],
+                    }
+                if not doctrine.location_id:
+                    stock, status = None, "unknown"
+                else:
+                    staging_id = doctrine.location_id
+                    route = freight_map.get(staging_id)
+                    broker_fee, sales_tax = loc_fees.get(staging_id, (0.0, 0.0))
+                    calc = calculate(
+                        df, staging_by_loc.get(staging_id, {}), jita_by_type,
+                        route.isk_per_m3 if route else None,
+                        route.value_pct if route else None,
+                        broker_fee, sales_tax,
+                    )
+                    stock = calc["completable"]
+                    status = _AVAIL_STATUS.get(calc["status"], "unknown")
+
+                fits_map[fit.id]["doctrines"].append({
+                    "doctrine_id": doctrine.id,
+                    "doctrine_name": doctrine.name,
+                    "df_id": df.id,
+                    "target_qty": df.target_qty,
+                    "stock": stock,
+                    "status": status,
+                    "location_name": doctrine.location.name if doctrine.location else None,
+                    "system": staging_systems.get(doctrine.location_id) if doctrine.location_id else None,
+                })
+
+        ship_ids = [v["ship_type_id"] for v in fits_map.values()]
+        if ship_ids:
+            names = type_names(ship_ids)
+            for v in fits_map.values():
+                v["hull"] = names.get(v["ship_type_id"], "")
+
+        _sord = {"short": 0, "partial": 1, "unknown": 2, "ready": 3}
+        for v in fits_map.values():
+            v["worst_status"] = min(
+                (d["status"] for d in v["doctrines"]),
+                key=lambda s: _sord.get(s, 2),
+                default="unknown",
+            )
+
+    return sorted(fits_map.values(), key=lambda x: x["fit_name"])
+
+
+@router.get("/fleet/items")
+async def fleet_items():
+    """Item-centric view: all items pooled across fits, showing total need vs stock."""
+    async with AsyncSessionLocal() as session:
+        doctrines = (await session.execute(
+            select(Doctrine).options(*_DOCTRINE_OPTS)
+        )).scalars().all()
+
+        staging_loc_ids = {d.location_id for d in doctrines if d.location_id}
+        all_type_ids = {
+            item.type_id
+            for d in doctrines if d.location_id
+            for df in d.doctrine_fits
+            for item in df.fit.items
+        }
+        if not all_type_ids or not staging_loc_ids:
+            return []
+
+        all_locs = (await session.execute(select(Location))).scalars().all()
+        jita_loc = next((l for l in all_locs if l.eve_id == 60003760), None)
+        jita_id = jita_loc.id if jita_loc else None
+
+        from ..sde import system_name_for_station as _sys, type_names, type_volumes as _tvols
+        staging_names: dict[int, str] = {}
+        staging_systems: dict[int, str | None] = {}
+        for loc in all_locs:
+            if loc.id in staging_loc_ids:
+                staging_names[loc.id] = loc.name
+                staging_systems[loc.id] = _sys(loc.eve_id) if loc.location_type == "station" else None
+
+        staging_by_loc: dict[int, dict[int, list]] = {}
+        staging_raw = (await session.execute(
+            select(MarketOrder).where(
+                MarketOrder.location_id.in_(staging_loc_ids),
+                MarketOrder.type_id.in_(list(all_type_ids)),
+                MarketOrder.is_buy.is_(False),
+            )
+        )).scalars().all()
+        for o in staging_raw:
+            staging_by_loc.setdefault(o.location_id, {}).setdefault(o.type_id, []).append(o)
+        for loc_d in staging_by_loc.values():
+            for lst in loc_d.values():
+                lst.sort(key=lambda o: o.price)
+
+        jita_by_type: dict[int, list] = {}
+        freight_map: dict[int, FreightRoute] = {}
+        if jita_id:
+            jita_raw = (await session.execute(
+                select(MarketOrder).where(
+                    MarketOrder.location_id == jita_id,
+                    MarketOrder.type_id.in_(list(all_type_ids)),
+                    MarketOrder.is_buy.is_(False),
+                )
+            )).scalars().all()
+            for o in jita_raw:
+                jita_by_type.setdefault(o.type_id, []).append(o)
+            for lst in jita_by_type.values():
+                lst.sort(key=lambda o: o.price)
+            routes = (await session.execute(
+                select(FreightRoute).where(
+                    FreightRoute.from_id == jita_id,
+                    FreightRoute.to_id.in_(staging_loc_ids),
+                )
+            )).scalars().all()
+            for r in routes:
+                freight_map[r.to_id] = r
+
+        volumes = _tvols(list(all_type_ids))
+        item_names = type_names(list(all_type_ids))
+        item_pool: dict[tuple[int, int], dict] = {}
+
+        for doctrine in doctrines:
+            if not doctrine.location_id:
+                continue
+            staging_id = doctrine.location_id
+            route = freight_map.get(staging_id)
+            staging_by_type = staging_by_loc.get(staging_id, {})
+
+            for df in doctrine.doctrine_fits:
+                for item in df.fit.items:
+                    key = (staging_id, item.type_id)
+                    qty_needed = item.quantity * df.target_qty
+                    s_orders = staging_by_type.get(item.type_id, [])
+                    j_orders = jita_by_type.get(item.type_id, [])
+                    qty_available = sum(o.volume_remain for o in s_orders)
+                    staging_price = float(s_orders[0].price) if s_orders else None
+                    jita_price = float(j_orders[0].price) if j_orders else None
+
+                    import_cost: float | None = None
+                    if jita_price is not None:
+                        if route is not None:
+                            vol = Decimal(str(volumes.get(item.type_id, 0)))
+                            freight = float(vol * route.isk_per_m3 + Decimal(str(jita_price)) * route.value_pct)
+                            import_cost = jita_price + freight
+                        else:
+                            import_cost = jita_price
+
+                    if key not in item_pool:
+                        item_pool[key] = {
+                            "type_id": item.type_id,
+                            "name": item_names.get(item.type_id, f"[{item.type_id}]"),
+                            "location_name": staging_names.get(staging_id, ""),
+                            "system": staging_systems.get(staging_id),
+                            "total_needed": 0,
+                            "qty_available": qty_available,
+                            "jita_price": jita_price,
+                            "import_cost": import_cost,
+                            "staging_price": staging_price,
+                            "fits": [],
+                        }
+
+                    item_pool[key]["total_needed"] += qty_needed
+                    item_pool[key]["fits"].append({
+                        "fit_id": df.fit.id,
+                        "fit_name": df.fit.name,
+                        "qty_per_fit": item.quantity,
+                        "target": df.target_qty,
+                    })
+
+    result = []
+    for entry in item_pool.values():
+        entry["shortfall"] = max(0, entry["total_needed"] - entry["qty_available"])
+        result.append(entry)
+
+    return sorted(result, key=lambda x: -(x["shortfall"] * (x["jita_price"] or 0)))
+
+
 # ── Market poll ──────────────────────────────────────────────────────────────
 
 @router.get("/poll-status")

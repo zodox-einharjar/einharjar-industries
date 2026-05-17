@@ -38,6 +38,8 @@ const NAV = [
     label: 'Fleet',
     items: [
       { label: 'Doctrines', href: '/availability' },
+      { label: 'Fits', href: '/fits' },
+      { label: 'Items', href: '/items' },
     ],
   },
   {

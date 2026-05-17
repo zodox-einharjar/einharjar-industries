@@ -60,7 +60,7 @@ interface FitSummary { id: number; name: string; hull: string; item_count: numbe
 
 async function copyText(text: string): Promise<void> {
   if (navigator.clipboard && window.isSecureContext) {
-    await copyText(text)
+    await navigator.clipboard.writeText(text)
   } else {
     const el = document.createElement('textarea')
     el.value = text
@@ -148,12 +148,32 @@ function dedupeByFitId(fits: FitEntry[]): FitEntry[] {
   return [...best.values()]
 }
 
+function pooledMissingItems(fits: FitEntry[]): { name: string; qty: number }[] {
+  // Pool by (location, type_id) so stock is shared across fits at the same location.
+  // Two fits needing the same item at the same staging station compete for the same inventory.
+  const pool = new Map<string, { name: string; total_needed: number; available: number }>()
+  for (const fit of fits) {
+    const loc = fit.location_name ?? '\0'
+    for (const row of fit.item_rows) {
+      const k = `${loc}\x00${row.type_id}`
+      const existing = pool.get(k)
+      if (existing) {
+        existing.total_needed += row.qty_needed
+      } else {
+        pool.set(k, { name: row.name, total_needed: row.qty_needed, available: row.qty_available })
+      }
+    }
+  }
+  const byName = new Map<string, number>()
+  for (const { name, total_needed, available } of pool.values()) {
+    const missing = Math.max(0, total_needed - available)
+    if (missing > 0) byName.set(name, (byName.get(name) ?? 0) + missing)
+  }
+  return [...byName.entries()].map(([name, qty]) => ({ name, qty }))
+}
+
 function docMissingItems(fits: FitEntry[]): { name: string; qty: number }[] {
-  const acc = new Map<string, number>()
-  for (const fit of dedupeByFitId(fits))
-    for (const mi of fit.missing_items)
-      acc.set(mi.name, (acc.get(mi.name) ?? 0) + mi.qty)
-  return [...acc.entries()].map(([name, qty]) => ({ name, qty }))
+  return pooledMissingItems(fits)
 }
 
 function costToTarget(fits: FitEntry[]): number {
@@ -1049,7 +1069,7 @@ export function AvailabilityClient() {
     const deduped  = dedupeByFitId(filteredFits)
     const below    = deduped.filter(f => f.stock !== null && f.stock < f.target)
     const cheaper  = deduped.filter(f => f.import_cost != null && (f.staging_price == null || f.import_cost < f.staging_price))
-    const shortfall = below.reduce((sum, f) => sum + (f.target - (f.stock ?? 0)) * (f.import_cost ?? f.jita_price ?? 0), 0)
+    const shortfall = below.reduce((sum, f) => sum + (f.target - (f.stock ?? 0)) * (f.jita_price ?? 0), 0)
     return { tracked: deduped.length, belowTarget: below.length, jitaCheaper: cheaper.length, shortfall }
   }, [filteredFits])
 
