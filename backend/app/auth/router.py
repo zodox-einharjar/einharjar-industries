@@ -28,6 +28,7 @@ _CHAR_SCOPES = [
     "esi-markets.read_character_orders.v1",
     "esi-wallet.read_character_wallet.v1",
     "esi-industry.read_character_jobs.v1",
+    "esi-contracts.read_character_contracts.v1",
 ]
 
 _CORP_SCOPES = [

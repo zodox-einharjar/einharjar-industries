@@ -53,12 +53,16 @@ def parse_eft(raw: str) -> dict:
     ship_type_id: int = ship_row["typeID"]
     quantities: dict[int, int] = defaultdict(int)
     quantities[ship_type_id] += 1
+    skipped: list[str] = []
 
     def resolve(name: str) -> int | None:
         row = sde.execute(
             "SELECT typeID FROM invTypes WHERE typeName = ?", (name,)
         ).fetchone()
-        return row["typeID"] if row else None
+        if not row:
+            skipped.append(name)
+            return None
+        return row["typeID"]
 
     for line in lines[1:]:
         line = line.strip()
@@ -93,4 +97,5 @@ def parse_eft(raw: str) -> dict:
         "ship_type_id": ship_type_id,
         "fit_name": fit_name,
         "items": dict(quantities),
+        "skipped": skipped,
     }

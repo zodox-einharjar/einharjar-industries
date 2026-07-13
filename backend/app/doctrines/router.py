@@ -18,6 +18,8 @@ from ..models import (
 from ..sde import region_id_for_station, region_id_for_system
 from .availability import calculate
 from .eft import EFTParseError, parse_eft
+from .html_import import HTMLImportError, parse_neocom_html
+from .import_sync import build_and_apply_plan
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,10 @@ class FitCreate(_Base):
 
 class FitUpdate(_Base):
     name: str | None = None
+
+class DoctrineImportRequest(_Base):
+    html: str
+    dry_run: bool = True
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -722,6 +728,19 @@ async def create_doctrine(body: DoctrineCreate):
         "id": doc_id, "name": body.name, "description": body.description,
         "location_id": body.location_id, "location_name": None, "fit_count": 0, "status": "unknown",
     }
+
+
+@router.post("/doctrines/import")
+async def import_doctrines(body: DoctrineImportRequest):
+    if not body.html.strip():
+        raise HTTPException(422, "Paste is empty.")
+    try:
+        parsed = parse_neocom_html(body.html)
+    except HTMLImportError as e:
+        raise HTTPException(422, str(e))
+    async with AsyncSessionLocal() as session:
+        plan = await build_and_apply_plan(session, parsed, dry_run=body.dry_run)
+    return {"dry_run": body.dry_run, **plan.as_dict()}
 
 
 @router.get("/doctrines/{doctrine_id}")

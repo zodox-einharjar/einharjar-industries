@@ -20,6 +20,7 @@ interface PollSettings {
   poll_corp_orders: number[]
   poll_char_wallet: number[]
   poll_corp_wallet: number[]
+  poll_char_contracts: number[]
   poll_corp_contracts: number[]
 }
 
@@ -29,6 +30,7 @@ const SCOPE_CHAR_ORDERS    = 'esi-markets.read_character_orders.v1'
 const SCOPE_CORP_ORDERS    = 'esi-markets.read_corporation_orders.v1'
 const SCOPE_CHAR_WALLET    = 'esi-wallet.read_character_wallet.v1'
 const SCOPE_CORP_WALLET    = 'esi-wallet.read_corporation_wallets.v1'
+const SCOPE_CHAR_CONTRACTS = 'esi-contracts.read_character_contracts.v1'
 const SCOPE_CORP_CONTRACTS = 'esi-contracts.read_corporation_contracts.v1'
 
 function TokenPill({ valid }: { valid: boolean }) {
@@ -79,6 +81,7 @@ export function EsiAuthTab() {
     poll_corp_orders: [],
     poll_char_wallet: [],
     poll_corp_wallet: [],
+    poll_char_contracts: [],
     poll_corp_contracts: [],
   })
   const [loading, setLoading]       = useState(true)
@@ -105,6 +108,7 @@ export function EsiAuthTab() {
         poll_corp_orders:     settingsData.poll_corp_orders     ?? [],
         poll_char_wallet:     settingsData.poll_char_wallet     ?? [],
         poll_corp_wallet:     settingsData.poll_corp_wallet     ?? [],
+        poll_char_contracts:  settingsData.poll_char_contracts  ?? [],
         poll_corp_contracts:  settingsData.poll_corp_contracts  ?? [],
       })
     } catch {
@@ -280,6 +284,12 @@ export function EsiAuthTab() {
                           checked={pollSettings.poll_corp_wallet.includes(char.character_id)}
                           disabled={!HAS_SCOPE(char, SCOPE_CORP_WALLET) || !hasCorpId}
                           onChange={on => toggleId('poll_corp_wallet', char.character_id, on)}
+                        />
+                        <Toggle
+                          label="Character contracts"
+                          checked={pollSettings.poll_char_contracts.includes(char.character_id)}
+                          disabled={!HAS_SCOPE(char, SCOPE_CHAR_CONTRACTS)}
+                          onChange={on => toggleId('poll_char_contracts', char.character_id, on)}
                         />
                         <Toggle
                           label="Corp contracts"

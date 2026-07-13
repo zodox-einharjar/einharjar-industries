@@ -324,6 +324,15 @@ function OverviewTab({
   const [addingOutput, setAddingOutput] = useState(false)
   const [pastingMaterials, setPastingMaterials] = useState(false)
   const [pastingOutputs, setPastingOutputs] = useState(false)
+  const [copiedMissing, setCopiedMissing] = useState(false)
+
+  function copyMissing() {
+    const missing = project.materials.filter(m => m.qty_shortfall > 0)
+    const text = missing.map(m => `${m.name} x ${m.qty_shortfall}`).join('\n')
+    navigator.clipboard.writeText(text)
+    setCopiedMissing(true)
+    setTimeout(() => setCopiedMissing(false), 1500)
+  }
 
   async function searchItems(q: string) {
     setItemSearch(q)
@@ -378,16 +387,26 @@ function OverviewTab({
       <section>
         <div className="flex items-center justify-between mb-2">
           <div className="text-[11px] font-semibold tracking-widest text-faint uppercase">Materials</div>
-          {canEdit && project.status === 'planning' && (
+          {project.status === 'planning' && (
             <div className="flex items-center gap-3">
-              <button onClick={() => { setPastingMaterials(v => !v); setAddingMaterial(false) }}
-                      className="text-[12px] text-accent hover:underline">
-                Paste table
-              </button>
-              <button onClick={() => { setAddingMaterial(!addingMaterial); setPastingMaterials(false) }}
-                      className="text-[12px] text-muted hover:text-primary">
-                + Add single
-              </button>
+              {project.materials.some(m => m.qty_shortfall > 0) && (
+                <button onClick={copyMissing}
+                        className="text-[12px] text-eve-amber hover:underline">
+                  {copiedMissing ? 'Copied!' : 'Copy Missing'}
+                </button>
+              )}
+              {canEdit && (
+                <>
+                  <button onClick={() => { setPastingMaterials(v => !v); setAddingMaterial(false) }}
+                          className="text-[12px] text-accent hover:underline">
+                    Paste table
+                  </button>
+                  <button onClick={() => { setAddingMaterial(!addingMaterial); setPastingMaterials(false) }}
+                          className="text-[12px] text-muted hover:text-primary">
+                    + Add single
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>

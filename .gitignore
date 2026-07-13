@@ -8,6 +8,8 @@ build/
 .env
 data/*.sqlite
 data/*.db
+**/data/*.sqlite
+**/data/*.db
 *.log
 .DS_Store
 

@@ -12,6 +12,7 @@ from ..models import AppSetting, Character, Contract
 
 logger = logging.getLogger(__name__)
 
+_CHAR_SCOPE = "esi-contracts.read_character_contracts.v1"
 _CORP_SCOPE = "esi-contracts.read_corporation_contracts.v1"
 
 
@@ -119,7 +120,36 @@ async def _poll_corp_contracts(char_id: int) -> dict:
         return stats
 
 
+async def _poll_char_contracts(char_id: int) -> dict:
+    async with AsyncSessionLocal() as session:
+        char = await session.get(Character, char_id)
+        if not char:
+            return {"count": 0}
+        try:
+            token = await get_valid_token(char, session)
+            contracts = await esi.fetch_all_pages(
+                f"/characters/{char.character_id}/contracts/",
+                token=token,
+            )
+        except TokenExpiredError as e:
+            logger.warning("Skipping char contracts for %s: %s", char.character_name, e)
+            return {"count": 0}
+        except ESIError as e:
+            logger.warning(
+                "poll_contracts: ESI %s for char %s", e.status, char.character_name,
+            )
+            return {"count": 0}
+        except Exception:
+            logger.exception("Unexpected error polling char contracts for %s", char.character_name)
+            return {"count": 0}
+
+        stats = await _upsert_contracts(session, char.id, contracts, source_tag="char")
+        await session.commit()
+        return stats
+
+
 async def poll_contracts() -> dict:
+    enabled_chars = await _get_enabled_ids("poll_char_contracts")
     enabled_corps = await _get_enabled_ids("poll_corp_contracts")
 
     async with AsyncSessionLocal() as session:
@@ -133,6 +163,15 @@ async def poll_contracts() -> dict:
 
     for char in all_chars:
         scopes = char.scopes or []
+
+        if enabled_chars is None:
+            if _CHAR_SCOPE in scopes:
+                stats = await _poll_char_contracts(char.id)
+                totals["count"] += stats["count"]
+        elif char.character_id in enabled_chars:
+            stats = await _poll_char_contracts(char.id)
+            totals["count"] += stats["count"]
+
         if not char.corporation_id or char.corporation_id in polled_corps:
             continue
 

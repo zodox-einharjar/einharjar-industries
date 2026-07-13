@@ -19,7 +19,7 @@ from scripts.update_sde import convert as _sde_convert
 
 router = APIRouter(prefix="/settings", dependencies=[Depends(get_current_character)])
 
-_POLL_KEYS = ("poll_char_orders", "poll_corp_orders", "poll_char_wallet", "poll_corp_wallet", "poll_corp_contracts")
+_POLL_KEYS = ("poll_char_orders", "poll_corp_orders", "poll_char_wallet", "poll_corp_wallet", "poll_char_contracts", "poll_corp_contracts")
 
 _DEFAULTS: dict[str, str] = {
     "poll_interval_minutes": "5",
@@ -75,6 +75,7 @@ class SettingsUpdate(_Base):
     poll_corp_orders: list[int] | None = None
     poll_char_wallet: list[int] | None = None
     poll_corp_wallet: list[int] | None = None
+    poll_char_contracts: list[int] | None = None
     poll_corp_contracts: list[int] | None = None
 
 
@@ -93,6 +94,7 @@ async def update_settings(body: SettingsUpdate):
         ("poll_corp_orders", body.poll_corp_orders),
         ("poll_char_wallet", body.poll_char_wallet),
         ("poll_corp_wallet", body.poll_corp_wallet),
+        ("poll_char_contracts", body.poll_char_contracts),
         ("poll_corp_contracts", body.poll_corp_contracts),
     ):
         if value is not None:

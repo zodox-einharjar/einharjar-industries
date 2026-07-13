@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, type FormEvent } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import Image from 'next/image'
+import Link from 'next/link'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1163,6 +1164,10 @@ export function AvailabilityClient() {
           className="px-3 py-1.5 text-[12px] border border-wire text-muted rounded hover:text-secondary transition-colors">
           {reportCopied ? '✓ Copied' : 'Report'}
         </button>
+        <Link href="/doctrines/import"
+          className="px-3 py-1.5 text-[12px] border border-wire text-muted rounded hover:text-secondary transition-colors">
+          Bulk Import
+        </Link>
         <button onClick={() => setShowCreate(true)}
           className="px-3 py-1.5 text-[12px] border border-accent text-accent rounded hover:bg-accent hover:text-canvas transition-colors">
           + New Doctrine
