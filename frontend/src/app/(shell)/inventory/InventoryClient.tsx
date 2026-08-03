@@ -34,6 +34,7 @@ interface ItemEntry {
   unit_value: number
   jita_buy: number | null
   jita_sell: number | null
+  local_sell: number | null
   total_value: number
 }
 
@@ -64,6 +65,7 @@ interface SelectedItem {
   unit_volume: number
   unit_value: number
   jita_sell: number | null
+  local_sell: number | null
   fees: LocationFees
 }
 
@@ -103,6 +105,20 @@ function fmtVol(v: number | null | undefined): string {
 const GRID = '32px minmax(0,2fr) 72px 96px 96px minmax(118px,2fr) minmax(118px,2fr) minmax(118px,2fr) minmax(128px,2fr) 56px'
 const CELL = 'flex items-center justify-end text-[12px] font-mono tabular-nums text-secondary'
 const CELL_L = 'flex items-center gap-2 text-[12px] min-w-0'
+
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text)
+  } else {
+    const el = document.createElement('textarea')
+    el.value = text
+    el.style.cssText = 'position:fixed;opacity:0'
+    document.body.appendChild(el)
+    el.focus(); el.select()
+    document.execCommand('copy')
+    document.body.removeChild(el)
+  }
+}
 
 const BTN_TAB_ACTIVE = 'flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded border border-accent text-accent bg-accent/10 transition-colors'
 const BTN_TAB        = 'flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded border border-wire text-muted hover:text-secondary transition-colors'
@@ -588,11 +604,17 @@ function SellModal({ items, onClose, onSold }: {
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
   const [highlightedCell, setHighlightedCell] = useState<string | null>(null)
+  const [listCopied, setListCopied] = useState(false)
   const [sellPrices, setSellPrices] = useState<Map<string, string>>(() => {
     const m = new Map<string, string>()
     items.forEach(i => {
       m.set(`${i.type_id}:${i.location_id}`, i.jita_sell != null ? String(i.jita_sell) : '')
     })
+    return m
+  })
+  const [priceSource, setPriceSource] = useState<Map<string, string>>(() => {
+    const m = new Map<string, string>()
+    items.forEach(i => m.set(`${i.type_id}:${i.location_id}`, i.jita_sell != null ? 'jita' : ''))
     return m
   })
   const [sellQtys, setSellQtys] = useState<Map<string, string>>(() => {
@@ -610,10 +632,25 @@ function SellModal({ items, onClose, onSold }: {
     ? 0
     : ((items[0]?.fees.broker_fee_pct ?? 0) + (items[0]?.fees.sales_tax_pct ?? 0) + (items[0]?.fees.scc_surcharge_pct ?? 0)) / 100
 
-  function fillPrice(k: string, refKey: string, val: number) {
+  function fillPrice(k: string, refKey: string, source: string, val: number) {
     setSellPrices(prev => new Map(prev).set(k, String(val)))
+    setPriceSource(prev => new Map(prev).set(k, source))
     setHighlightedCell(refKey)
     setTimeout(() => setHighlightedCell(null), 1200)
+  }
+
+  async function copySellList() {
+    const lines = items
+      .map(i => {
+        const k = `${i.type_id}:${i.location_id}`
+        const price = parseFloat((sellPrices.get(k) ?? '').replace(/[\s,]/g, '')) || 0
+        return { name: i.name, price }
+      })
+      .filter(i => i.price > 0)
+      .map(i => `${i.name} ${i.price.toFixed(2)}`)
+    await copyText(lines.join('\n'))
+    setListCopied(true)
+    setTimeout(() => setListCopied(false), 1500)
   }
 
   async function handleSell() {
@@ -673,6 +710,7 @@ function SellModal({ items, onClose, onSold }: {
                 <th className="text-right px-3 py-2 text-[10px] text-muted font-semibold uppercase tracking-wider">+5%</th>
                 <th className="text-right px-3 py-2 text-[10px] text-muted font-semibold uppercase tracking-wider">+10%</th>
                 <th className="text-right px-3 py-2 text-[10px] text-muted font-semibold uppercase tracking-wider">Jita sell</th>
+                <th className="text-right px-3 py-2 text-[10px] text-muted font-semibold uppercase tracking-wider">Market low</th>
               </>}
               <th className="text-right px-3 py-2 text-[10px] text-muted font-semibold uppercase tracking-wider">
                 {method === 'market' ? 'Listing price' : 'Contract price'}
@@ -716,29 +754,42 @@ function SellModal({ items, onClose, onSold }: {
                   <td className="px-3 py-2 text-right font-mono text-secondary">{iska(i.unit_value)}</td>
                   {method === 'market' && <>
                     {([
-                      { refKey: `${k}:be`,  val: be,  cls: 'text-eve-amber' },
-                      { refKey: `${k}:m5`,  val: m5,  cls: 'text-eve-green' },
-                      { refKey: `${k}:m10`, val: m10, cls: 'text-eve-green' },
-                    ] as const).map(({ refKey, val, cls }) => (
-                      <td
-                        key={refKey}
-                        onClick={() => val != null && fillPrice(k, refKey, val)}
-                        title={val != null ? 'Click to use as listing price' : undefined}
-                        className={`px-3 py-2 text-right font-mono select-none transition-colors ${
-                          val != null ? 'cursor-pointer' : ''
-                        } ${highlightedCell === refKey ? 'bg-eve-green/10 text-eve-green' : cls}`}
-                      >
-                        {val != null ? (highlightedCell === refKey ? '✓' : fmtOrderPrice(val)) : '—'}
-                      </td>
-                    ))}
-                    <td className="px-3 py-2 text-right font-mono text-muted">{iska(i.jita_sell)}</td>
+                      { source: 'be',     refKey: `${k}:be`,     val: be,           cls: 'text-eve-amber', fmt: fmtOrderPrice },
+                      { source: 'm5',     refKey: `${k}:m5`,     val: m5,           cls: 'text-eve-green', fmt: fmtOrderPrice },
+                      { source: 'm10',    refKey: `${k}:m10`,    val: m10,          cls: 'text-eve-green', fmt: fmtOrderPrice },
+                      { source: 'jita',   refKey: `${k}:jita`,   val: i.jita_sell,  cls: 'text-muted',     fmt: iska },
+                      { source: 'market', refKey: `${k}:market`, val: i.local_sell, cls: 'text-secondary', fmt: iska },
+                    ]).map(({ source, refKey, val, cls, fmt }) => {
+                      const isSelected = priceSource.get(k) === source
+                      return (
+                        <td
+                          key={refKey}
+                          onClick={() => val != null && fillPrice(k, refKey, source, val)}
+                          title={val != null ? 'Click to use as listing price' : undefined}
+                          className={`px-3 py-2 text-right font-mono select-none transition-colors ${
+                            val != null ? 'cursor-pointer' : ''
+                          } ${
+                            highlightedCell === refKey
+                              ? 'bg-eve-green/10 text-eve-green'
+                              : isSelected
+                              ? 'bg-accent/10 text-accent ring-1 ring-inset ring-accent/40'
+                              : cls
+                          }`}
+                        >
+                          {val != null ? (highlightedCell === refKey ? '✓' : fmt(val)) : '—'}
+                        </td>
+                      )
+                    })}
                   </>}
                   <td className="px-3 py-2 text-right">
                     <input
                       type="text"
                       inputMode="numeric"
                       value={rawPrice}
-                      onChange={e => setSellPrices(prev => new Map(prev).set(k, e.target.value))}
+                      onChange={e => {
+                        setSellPrices(prev => new Map(prev).set(k, e.target.value))
+                        setPriceSource(prev => new Map(prev).set(k, 'custom'))
+                      }}
                       placeholder="0.00"
                       className="bg-canvas border border-wire rounded px-2 py-0.5 text-[12px] font-mono text-right text-primary focus:outline-none focus:border-accent w-36"
                     />
@@ -767,9 +818,14 @@ function SellModal({ items, onClose, onSold }: {
         <p className="text-[11px] text-faint mb-4">No broker fees or sales tax on contracts.</p>
       )}
 
-      <button onClick={handleSell} disabled={loading} className={`${BTN_SM_PRIMARY} disabled:opacity-40 disabled:pointer-events-none`}>
-        {loading ? 'Saving…' : 'Record manual sale'}
-      </button>
+      <div className="flex gap-2">
+        <button onClick={handleSell} disabled={loading} className={`${BTN_SM_PRIMARY} disabled:opacity-40 disabled:pointer-events-none`}>
+          {loading ? 'Saving…' : 'Record manual sale'}
+        </button>
+        <button onClick={copySellList} className={BTN_SM}>
+          {listCopied ? 'Copied!' : 'Copy sell list'}
+        </button>
+      </div>
     </Modal>
   )
 }
@@ -860,7 +916,7 @@ export function InventoryClient() {
     setSelected(prev => {
       const next = new Map(prev)
       if (next.has(k)) next.delete(k)
-      else next.set(k, { type_id: item.type_id, location_id: locationId, name: item.name, qty: item.qty, unit_volume: item.unit_volume, unit_value: item.unit_value, jita_sell: item.jita_sell, fees })
+      else next.set(k, { type_id: item.type_id, location_id: locationId, name: item.name, qty: item.qty, unit_volume: item.unit_volume, unit_value: item.unit_value, jita_sell: item.jita_sell, local_sell: item.local_sell, fees })
       return next
     })
   }
@@ -876,7 +932,7 @@ export function InventoryClient() {
         group.items.forEach(i =>
           next.set(selKey(i.type_id, group.location_id), {
             type_id: i.type_id, location_id: group.location_id,
-            name: i.name, qty: i.qty, unit_volume: i.unit_volume, unit_value: i.unit_value, jita_sell: i.jita_sell, fees: group.fees,
+            name: i.name, qty: i.qty, unit_volume: i.unit_volume, unit_value: i.unit_value, jita_sell: i.jita_sell, local_sell: i.local_sell, fees: group.fees,
           })
         )
       }
@@ -1028,11 +1084,11 @@ export function InventoryClient() {
                         onToggle={() => toggleItem(item, group.location_id, group.fees)}
                         onTransfer={() => openTransfer([{
                           type_id: item.type_id, location_id: group.location_id,
-                          name: item.name, qty: item.qty, unit_volume: item.unit_volume, unit_value: item.unit_value, jita_sell: item.jita_sell, fees: group.fees,
+                          name: item.name, qty: item.qty, unit_volume: item.unit_volume, unit_value: item.unit_value, jita_sell: item.jita_sell, local_sell: item.local_sell, fees: group.fees,
                         }])}
                         onSell={() => openSell([{
                           type_id: item.type_id, location_id: group.location_id,
-                          name: item.name, qty: item.qty, unit_volume: item.unit_volume, unit_value: item.unit_value, jita_sell: item.jita_sell, fees: group.fees,
+                          name: item.name, qty: item.qty, unit_volume: item.unit_volume, unit_value: item.unit_value, jita_sell: item.jita_sell, local_sell: item.local_sell, fees: group.fees,
                         }])}
                       />
                     ))}

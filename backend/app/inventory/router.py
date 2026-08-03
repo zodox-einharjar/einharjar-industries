@@ -275,6 +275,7 @@ async def inventory_list(location_id: int | None = None):
             unit_value = float(basis / qty_total) if qty_total else 0.0
             vol = vols.get(tid, 0.0)
             jita_mkt = market.get((tid, jita_id), {}) if jita_id else {}
+            local_mkt = market.get((tid, loc_id_key), {})
 
             # Show row if there's anything available, reserved, or on market
             if qty_available <= 0 and qty_reserved <= 0 and qty_on_market <= 0:
@@ -294,6 +295,7 @@ async def inventory_list(location_id: int | None = None):
                 "unit_value": unit_value,
                 "jita_buy": jita_mkt.get("buy"),
                 "jita_sell": jita_mkt.get("sell"),
+                "local_sell": local_mkt.get("sell"),
                 "total_value": unit_value * qty_available,
             })
 
