@@ -149,11 +149,11 @@ async def _poll_char_contracts(char_id: int) -> dict:
         return stats
 
 
-def _format_assignment_message(contract: Contract) -> str:
+def _format_assignment_message(contract: Contract, issuer_name: str) -> str:
     from ..templates import _fmt_iska
 
     amount = contract.price or contract.reward
-    parts = [f"**Contract assigned to you** — {contract.type}"]
+    parts = [f"**Contract assigned to you** — {contract.type} from {issuer_name}"]
     if contract.title:
         parts.append(contract.title)
     if amount:
@@ -180,8 +180,14 @@ async def _notify_assigned_contracts() -> None:
         if not new_contracts:
             return
 
+        char_name_by_id = {c.character_id: c.character_name for c in chars}
+        unknown_ids = {c.issuer_id for c in new_contracts if c.issuer_id not in char_name_by_id}
+        resolved = await esi.resolve_names(list(unknown_ids))
+        issuer_names = {**char_name_by_id, **resolved}
+
         for contract in new_contracts:
-            await notifier.notify(_format_assignment_message(contract))
+            issuer_name = issuer_names.get(contract.issuer_id, f"issuer:{contract.issuer_id}")
+            await notifier.notify(_format_assignment_message(contract, issuer_name))
             contract.discord_notified = True
         await session.commit()
 
