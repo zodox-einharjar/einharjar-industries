@@ -7,6 +7,8 @@ configs:
           listen 80;
           server_name YOUR_DOMAIN;
 
+          client_max_body_size 25m;
+
           add_header X-Content-Type-Options  "nosniff"                         always;
           add_header X-Frame-Options         "SAMEORIGIN"                      always;
           add_header Referrer-Policy         "strict-origin-when-cross-origin" always;
@@ -52,6 +54,14 @@ services:
       EVE_CALLBACK_URL: http://YOUR_DOMAIN/auth/callback
     volumes:
       - backend_data:/app/data
+  discord-bot:
+    image: ghcr.io/zodox-einharjar/einharjar-industries-backend:latest
+    restart: unless-stopped
+    command: python -m app.discord.main
+    env_file: .env
+    volumes:
+      - backend_data:/app/data
+
   frontend:
     image: ghcr.io/zodox-einharjar/einharjar-industries-frontend:latest
     restart: unless-stopped
