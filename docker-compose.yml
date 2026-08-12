@@ -13,6 +13,15 @@ services:
       # SDE SQLite is not baked into the image — mount the file from the host.
       - ./backend/data:/app/data
 
+  discord-bot:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command: python -m app.discord.main
+    env_file: .env
+    volumes:
+      - ./backend/data:/app/data
+
   frontend:
     build:
       context: ./frontend

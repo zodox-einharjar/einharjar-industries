@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..auth.tokens import TokenExpiredError, get_valid_token
 from ..db import AsyncSessionLocal
+from ..discord import notifier
 from ..esi.client import ESIError, esi
 from ..models import AppSetting, Character, Contract
 
@@ -148,6 +149,43 @@ async def _poll_char_contracts(char_id: int) -> dict:
         return stats
 
 
+def _format_assignment_message(contract: Contract) -> str:
+    from ..templates import _fmt_iska
+
+    amount = contract.price or contract.reward
+    parts = [f"**Contract assigned to you** — {contract.type}"]
+    if contract.title:
+        parts.append(contract.title)
+    if amount:
+        parts.append(f"{_fmt_iska(amount)} ISK")
+    parts.append(f"expires {contract.date_expired:%Y-%m-%d %H:%M} UTC")
+    return " · ".join(parts)
+
+
+async def _notify_assigned_contracts() -> None:
+    async with AsyncSessionLocal() as session:
+        chars = (await session.execute(select(Character))).scalars().all()
+        my_ids = {c.character_id for c in chars} | {c.corporation_id for c in chars if c.corporation_id}
+        if not my_ids:
+            return
+
+        result = await session.execute(
+            select(Contract).where(
+                Contract.assignee_id.in_(my_ids),
+                Contract.status == "outstanding",
+                Contract.discord_notified.is_(False),
+            )
+        )
+        new_contracts = result.scalars().all()
+        if not new_contracts:
+            return
+
+        for contract in new_contracts:
+            await notifier.notify(_format_assignment_message(contract))
+            contract.discord_notified = True
+        await session.commit()
+
+
 async def poll_contracts() -> dict:
     enabled_chars = await _get_enabled_ids("poll_char_contracts")
     enabled_corps = await _get_enabled_ids("poll_corp_contracts")
@@ -184,5 +222,9 @@ async def poll_contracts() -> dict:
             stats = await _poll_corp_contracts(char.id)
             totals["count"] += stats["count"]
             polled_corps.add(char.corporation_id)
+
+    await _notify_assigned_contracts()
+
+    return totals
 
     return totals

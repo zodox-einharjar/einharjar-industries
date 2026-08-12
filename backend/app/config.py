@@ -19,5 +19,11 @@ class Settings(BaseSettings):
 
     sde_path: str = "data/sqlite-latest.sqlite"
 
+    # Discord bot — notifications + slash-command reports
+    discord_bot_token: str = ""
+    discord_guild_id: str = ""
+    discord_notify_channel_id: str = ""
+    discord_allowed_user_id: str = ""  # only this Discord user ID may invoke slash commands
+
 
 settings = Settings()

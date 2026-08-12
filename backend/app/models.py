@@ -331,6 +331,7 @@ class Contract(Base):
     end_location_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     last_synced: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    discord_notified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
 
 class IndustryJob(Base):

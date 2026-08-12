@@ -15,83 +15,80 @@ router = APIRouter(prefix="/market-listings", dependencies=[Depends(get_current_
 _JITA_EVE_ID = 60003760
 
 
-@router.get("")
-async def list_market_listings():
+async def compute_listing_report(session) -> list[dict]:
     now = datetime.now(timezone.utc)
-    async with AsyncSessionLocal() as session:
-        listings = (await session.execute(
-            select(MarketListing).where(MarketListing.status == "active")
-        )).scalars().all()
+    listings = (await session.execute(
+        select(MarketListing).where(MarketListing.status == "active")
+    )).scalars().all()
 
-        if not listings:
-            return []
+    if not listings:
+        return []
 
-        type_ids = list({ml.type_id for ml in listings})
-        eve_loc_ids = list({ml.eve_location_id for ml in listings})
+    type_ids = list({ml.type_id for ml in listings})
+    eve_loc_ids = list({ml.eve_location_id for ml in listings})
 
-        # Location map: eve_id → Location
-        loc_rows = (await session.execute(
-            select(Location).where(Location.eve_id.in_(eve_loc_ids))
-        )).scalars().all()
-        loc_by_eve_id = {l.eve_id: l for l in loc_rows}
+    # Location map: eve_id → Location
+    loc_rows = (await session.execute(
+        select(Location).where(Location.eve_id.in_(eve_loc_ids))
+    )).scalars().all()
+    loc_by_eve_id = {l.eve_id: l for l in loc_rows}
 
-        # Jita location
-        jita_loc = (await session.execute(
-            select(Location).where(Location.eve_id == _JITA_EVE_ID)
-        )).scalar_one_or_none()
+    # Jita location
+    jita_loc = (await session.execute(
+        select(Location).where(Location.eve_id == _JITA_EVE_ID)
+    )).scalar_one_or_none()
 
-        loc_ids = list({l.id for l in loc_rows})
+    loc_ids = list({l.id for l in loc_rows})
 
-        # Best sell price per (type_id, location_id) from the authenticated market poll
-        best_sell_rows = []
-        if loc_ids and type_ids:
-            best_sell_rows = (await session.execute(
-                select(
-                    MarketOrder.type_id,
-                    MarketOrder.location_id,
-                    func.min(MarketOrder.price).label("best_sell"),
-                )
-                .where(MarketOrder.location_id.in_(loc_ids))
-                .where(MarketOrder.type_id.in_(type_ids))
-                .where(MarketOrder.is_buy.is_(False))
-                .group_by(MarketOrder.type_id, MarketOrder.location_id)
-            )).all()
+    # Best sell price per (type_id, location_id) from the authenticated market poll
+    best_sell_rows = []
+    if loc_ids and type_ids:
+        best_sell_rows = (await session.execute(
+            select(
+                MarketOrder.type_id,
+                MarketOrder.location_id,
+                func.min(MarketOrder.price).label("best_sell"),
+            )
+            .where(MarketOrder.location_id.in_(loc_ids))
+            .where(MarketOrder.type_id.in_(type_ids))
+            .where(MarketOrder.is_buy.is_(False))
+            .group_by(MarketOrder.type_id, MarketOrder.location_id)
+        )).all()
 
-        # Jita buy + sell for the modal price options
-        jita_price_rows = []
-        if jita_loc and type_ids:
-            jita_price_rows = (await session.execute(
-                select(
-                    MarketOrder.type_id,
-                    MarketOrder.is_buy,
-                    func.min(MarketOrder.price).label("min_price"),
-                    func.max(MarketOrder.price).label("max_price"),
-                )
-                .where(MarketOrder.location_id == jita_loc.id)
-                .where(MarketOrder.type_id.in_(type_ids))
-                .group_by(MarketOrder.type_id, MarketOrder.is_buy)
-            )).all()
+    # Jita buy + sell for the modal price options
+    jita_price_rows = []
+    if jita_loc and type_ids:
+        jita_price_rows = (await session.execute(
+            select(
+                MarketOrder.type_id,
+                MarketOrder.is_buy,
+                func.min(MarketOrder.price).label("min_price"),
+                func.max(MarketOrder.price).label("max_price"),
+            )
+            .where(MarketOrder.location_id == jita_loc.id)
+            .where(MarketOrder.type_id.in_(type_ids))
+            .group_by(MarketOrder.type_id, MarketOrder.is_buy)
+        )).all()
 
-        # Which (type_id, location_id) pairs have inventory lots with qty > 0
-        # Also compute weighted avg unit cost per pair
-        inventory_pairs: set[tuple[int, int]] = set()
-        unit_cost_rows = []
-        if loc_ids and type_ids:
-            lot_rows = (await session.execute(
-                select(
-                    InventoryLot.type_id,
-                    InventoryLot.location_id,
-                    (func.sum(InventoryLot.unit_cost * InventoryLot.qty_remaining) / func.sum(InventoryLot.qty_remaining)).label("avg_cost"),
-                )
-                .where(InventoryLot.location_id.in_(loc_ids))
-                .where(InventoryLot.type_id.in_(type_ids))
-                .where(InventoryLot.qty_remaining > 0)
-                .group_by(InventoryLot.type_id, InventoryLot.location_id)
-            )).all()
-            for r in lot_rows:
-                inventory_pairs.add((r.type_id, r.location_id))
-                unit_cost_rows.append(r)
-
+    # Which (type_id, location_id) pairs have inventory lots with qty > 0
+    # Also compute weighted avg unit cost per pair
+    inventory_pairs: set[tuple[int, int]] = set()
+    unit_cost_rows = []
+    if loc_ids and type_ids:
+        lot_rows = (await session.execute(
+            select(
+                InventoryLot.type_id,
+                InventoryLot.location_id,
+                (func.sum(InventoryLot.unit_cost * InventoryLot.qty_remaining) / func.sum(InventoryLot.qty_remaining)).label("avg_cost"),
+            )
+            .where(InventoryLot.location_id.in_(loc_ids))
+            .where(InventoryLot.type_id.in_(type_ids))
+            .where(InventoryLot.qty_remaining > 0)
+            .group_by(InventoryLot.type_id, InventoryLot.location_id)
+        )).all()
+        for r in lot_rows:
+            inventory_pairs.add((r.type_id, r.location_id))
+            unit_cost_rows.append(r)
 
     best_sell: dict[tuple[int, int], float] = {}
     for row in best_sell_rows:
@@ -167,6 +164,12 @@ async def list_market_listings():
 
     result.sort(key=lambda x: (x["has_inventory"], x["is_undercut"] is False, x["item_name"]))
     return result
+
+
+@router.get("")
+async def list_market_listings():
+    async with AsyncSessionLocal() as session:
+        return await compute_listing_report(session)
 
 
 class AddInventoryRequest(_Base):

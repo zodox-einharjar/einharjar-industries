@@ -1219,72 +1219,72 @@ async def trigger_poll_all():
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
-@router.get("/dashboard")
-async def dashboard():
-    async with AsyncSessionLocal() as session:
-        doctrines = (await session.execute(
-            select(Doctrine).options(*_DOCTRINE_OPTS)
+async def compute_doctrine_report(session, doctrine_id: int | None = None) -> dict:
+    """Doctrine stock summary — used by the /dashboard route and the Discord /report doctrine command."""
+    q = select(Doctrine).options(*_DOCTRINE_OPTS)
+    if doctrine_id is not None:
+        q = q.where(Doctrine.id == doctrine_id)
+    doctrines = (await session.execute(q)).scalars().all()
+
+    all_locs = (await session.execute(select(Location))).scalars().all()
+    jita_loc = next((l for l in all_locs if l.eve_id == 60003760), None)
+    jita_id = jita_loc.id if jita_loc else None
+
+    staging_loc_ids = {d.location_id for d in doctrines if d.location_id}
+    all_type_ids = {
+        item.type_id
+        for d in doctrines if d.location_id
+        for df in d.doctrine_fits
+        for item in df.fit.items
+    }
+    loc_fees_dash: dict[int, tuple[float, float]] = {
+        loc.id: (loc.broker_fee_pct or 0.0, loc.sales_tax_pct or 0.0)
+        for loc in all_locs if loc.id in staging_loc_ids
+    }
+
+    staging_by_loc: dict = {}
+    jita_by_type: dict = {}
+    freight_map: dict = {}
+
+    if all_type_ids and staging_loc_ids:
+        staging_raw = (await session.execute(
+            select(MarketOrder).where(
+                MarketOrder.location_id.in_(staging_loc_ids),
+                MarketOrder.type_id.in_(list(all_type_ids)),
+                MarketOrder.is_buy.is_(False),
+            )
         )).scalars().all()
+        for o in staging_raw:
+            staging_by_loc.setdefault(o.location_id, {}).setdefault(o.type_id, []).append(o)
+        for loc_d in staging_by_loc.values():
+            for lst in loc_d.values():
+                lst.sort(key=lambda o: o.price)
 
-        all_locs = (await session.execute(select(Location))).scalars().all()
-        jita_loc = next((l for l in all_locs if l.eve_id == 60003760), None)
-        jita_id = jita_loc.id if jita_loc else None
-
-        staging_loc_ids = {d.location_id for d in doctrines if d.location_id}
-        all_type_ids = {
-            item.type_id
-            for d in doctrines if d.location_id
-            for df in d.doctrine_fits
-            for item in df.fit.items
-        }
-        loc_fees_dash: dict[int, tuple[float, float]] = {
-            loc.id: (loc.broker_fee_pct or 0.0, loc.sales_tax_pct or 0.0)
-            for loc in all_locs if loc.id in staging_loc_ids
-        }
-
-        staging_by_loc: dict = {}
-        jita_by_type: dict = {}
-        freight_map: dict = {}
-
-        if all_type_ids and staging_loc_ids:
-            staging_raw = (await session.execute(
+        if jita_id:
+            jita_raw = (await session.execute(
                 select(MarketOrder).where(
-                    MarketOrder.location_id.in_(staging_loc_ids),
+                    MarketOrder.location_id == jita_id,
                     MarketOrder.type_id.in_(list(all_type_ids)),
                     MarketOrder.is_buy.is_(False),
                 )
             )).scalars().all()
-            for o in staging_raw:
-                staging_by_loc.setdefault(o.location_id, {}).setdefault(o.type_id, []).append(o)
-            for loc_d in staging_by_loc.values():
-                for lst in loc_d.values():
-                    lst.sort(key=lambda o: o.price)
+            for o in jita_raw:
+                jita_by_type.setdefault(o.type_id, []).append(o)
+            for lst in jita_by_type.values():
+                lst.sort(key=lambda o: o.price)
 
-            if jita_id:
-                jita_raw = (await session.execute(
-                    select(MarketOrder).where(
-                        MarketOrder.location_id == jita_id,
-                        MarketOrder.type_id.in_(list(all_type_ids)),
-                        MarketOrder.is_buy.is_(False),
-                    )
-                )).scalars().all()
-                for o in jita_raw:
-                    jita_by_type.setdefault(o.type_id, []).append(o)
-                for lst in jita_by_type.values():
-                    lst.sort(key=lambda o: o.price)
+            routes = (await session.execute(
+                select(FreightRoute).where(
+                    FreightRoute.from_id == jita_id,
+                    FreightRoute.to_id.in_(staging_loc_ids),
+                )
+            )).scalars().all()
+            for r in routes:
+                freight_map[r.to_id] = r
 
-                routes = (await session.execute(
-                    select(FreightRoute).where(
-                        FreightRoute.from_id == jita_id,
-                        FreightRoute.to_id.in_(staging_loc_ids),
-                    )
-                )).scalars().all()
-                for r in routes:
-                    freight_map[r.to_id] = r
-
-        last_poll = (await session.execute(
-            select(func.max(MarketOrder.fetched_at))
-        )).scalar_one_or_none()
+    last_poll = (await session.execute(
+        select(func.max(MarketOrder.fetched_at))
+    )).scalar_one_or_none()
 
     now = datetime.now(timezone.utc)
 
@@ -1415,3 +1415,9 @@ async def dashboard():
             for item in items_list
         ],
     }
+
+
+@router.get("/dashboard")
+async def dashboard():
+    async with AsyncSessionLocal() as session:
+        return await compute_doctrine_report(session)

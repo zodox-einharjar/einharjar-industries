@@ -33,4 +33,5 @@ _COLUMN_MIGRATIONS = [
     "ALTER TABLE inventory_lots ALTER COLUMN location_id DROP NOT NULL",
     "ALTER TABLE inventory_lots DROP CONSTRAINT IF EXISTS inventory_lots_location_id_fkey",
     "ALTER TABLE inventory_lots ADD CONSTRAINT inventory_lots_location_id_fkey FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS discord_notified BOOLEAN NOT NULL DEFAULT false",
 ]
