@@ -59,6 +59,10 @@ services:
     restart: unless-stopped
     command: python -m app.discord.main
     env_file: .env
+    # Inherits the backend image's HEALTHCHECK (curls :8000/health), but this
+    # container runs the bot, not uvicorn — nothing listens on :8000 here.
+    healthcheck:
+      disable: true
     volumes:
       - backend_data:/app/data
 
