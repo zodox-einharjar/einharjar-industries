@@ -1313,7 +1313,7 @@ async def compute_doctrine_report(session, doctrine_id: int | None = None) -> di
                 "id": doctrine.id, "name": doctrine.name,
                 "status": "unknown", "fits_stocked": 0, "fits_total": fits_total,
                 "fits": [
-                    {"name": df.fit.name, "status": "unknown", "stock": None, "target": df.target_qty}
+                    {"name": df.fit.name, "status": "unknown", "stock": None, "target": df.target_qty, "price": None}
                     for df in doctrine.doctrine_fits
                 ],
             })
@@ -1332,11 +1332,15 @@ async def compute_doctrine_report(session, doctrine_id: int | None = None) -> di
                 route.value_pct if route else None,
                 broker_fee_d, sales_tax_d,
             )
+            price = None
+            if all(r["staging_price"] is not None or r["jita_price"] is not None for r in calc["item_rows"]):
+                price = calc["staging_total"] if calc["staging_total"] is not None else calc["import_total"]
             fits_out.append({
                 "name": df.fit.name,
                 "status": _AVAIL_STATUS.get(calc["status"], "unknown"),
                 "stock": calc["completable"],
                 "target": df.target_qty,
+                "price": float(price) if price is not None else None,
             })
             if calc["completable"] >= df.target_qty:
                 fits_stocked += 1

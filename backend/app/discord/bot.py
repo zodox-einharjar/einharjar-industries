@@ -53,7 +53,7 @@ async def _build_market_embed() -> discord.Embed:
 def _fit_line(f: dict) -> str:
     emoji = _STATUS_EMOJI.get(f["status"], "⚪")
     stock = f["stock"] if f["stock"] is not None else "?"
-    return f"{emoji} **{f['name']}** — `{stock}/{f['target']}`"
+    return f"{emoji} **{f['name']}** — `{stock}/{f['target']}` · {_fmt_iska(f['price'])} ISK"
 
 
 async def _build_doctrine_embed(name: str | None) -> discord.Embed:
@@ -90,13 +90,6 @@ async def _build_doctrine_embed(name: str | None) -> discord.Embed:
         emoji = _STATUS_EMOJI.get(d["status"], "⚪")
         value = "\n".join(_fit_line(f) for f in d["fits"]) or "(no fits)"
         embed.add_field(name=f"{emoji}  {d['name']}", value=value, inline=False)
-
-    if report["items_to_source"]:
-        lines = [
-            f"{item['name']} × {item['qty_needed']} ({item['source']})"
-            for item in report["items_to_source"]
-        ]
-        embed.add_field(name="Top items to source", value="\n".join(lines), inline=False)
 
     return embed
 
