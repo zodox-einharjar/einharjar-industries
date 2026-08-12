@@ -50,6 +50,12 @@ async def _build_market_embed() -> discord.Embed:
     return embed
 
 
+def _fit_line(f: dict) -> str:
+    emoji = _STATUS_EMOJI.get(f["status"], "⚪")
+    stock = f["stock"] if f["stock"] is not None else "?"
+    return f"{emoji} **{f['name']}** — `{stock}/{f['target']}`"
+
+
 async def _build_doctrine_embed(name: str | None) -> discord.Embed:
     async with AsyncSessionLocal() as session:
         doctrine_id = None
@@ -65,6 +71,15 @@ async def _build_doctrine_embed(name: str | None) -> discord.Embed:
 
         report = await compute_doctrine_report(session, doctrine_id=doctrine_id)
 
+    # Single doctrine: give it the embed's own title instead of a field, so it
+    # reads as a clear header above the fit rows rather than another list item.
+    if doctrine_id is not None:
+        d = report["doctrine_summary"][0]
+        emoji = _STATUS_EMOJI.get(d["status"], "⚪")
+        embed = discord.Embed(title=f"{emoji} {d['name']}", color=discord.Color.gold())
+        embed.description = "\n".join(_fit_line(f) for f in d["fits"]) or "(no fits)"
+        return embed
+
     embed = discord.Embed(title="Doctrine Stock Report", color=discord.Color.gold())
     embed.description = (
         f"{report['doctrines_fully_stocked']}/{report['doctrine_count']} doctrines fully stocked "
@@ -73,11 +88,8 @@ async def _build_doctrine_embed(name: str | None) -> discord.Embed:
 
     for d in report["doctrine_summary"][:25]:
         emoji = _STATUS_EMOJI.get(d["status"], "⚪")
-        embed.add_field(
-            name=f"{emoji} {d['name']}",
-            value=f"{d['fits_stocked']}/{d['fits_total']} fits stocked",
-            inline=True,
-        )
+        value = "\n".join(_fit_line(f) for f in d["fits"]) or "(no fits)"
+        embed.add_field(name=f"{emoji}  {d['name']}", value=value, inline=False)
 
     if report["items_to_source"]:
         lines = [
