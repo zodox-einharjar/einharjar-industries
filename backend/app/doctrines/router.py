@@ -79,6 +79,7 @@ class FitUpdate(_Base):
 class DoctrineImportRequest(_Base):
     html: str
     dry_run: bool = True
+    location_overrides: dict[str, int | None] = {}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -739,7 +740,9 @@ async def import_doctrines(body: DoctrineImportRequest):
     except HTMLImportError as e:
         raise HTTPException(422, str(e))
     async with AsyncSessionLocal() as session:
-        plan = await build_and_apply_plan(session, parsed, dry_run=body.dry_run)
+        plan = await build_and_apply_plan(
+            session, parsed, dry_run=body.dry_run, location_overrides=body.location_overrides,
+        )
     return {"dry_run": body.dry_run, **plan.as_dict()}
 
 
@@ -1309,6 +1312,10 @@ async def compute_doctrine_report(session, doctrine_id: int | None = None) -> di
             doctrine_summary.append({
                 "id": doctrine.id, "name": doctrine.name,
                 "status": "unknown", "fits_stocked": 0, "fits_total": fits_total,
+                "fits": [
+                    {"name": df.fit.name, "status": "unknown", "stock": None, "target": df.target_qty}
+                    for df in doctrine.doctrine_fits
+                ],
             })
             continue
 
@@ -1316,6 +1323,7 @@ async def compute_doctrine_report(session, doctrine_id: int | None = None) -> di
         route = freight_map.get(staging_id)
         staging_by_type = staging_by_loc.get(staging_id, {})
         broker_fee_d, sales_tax_d = loc_fees_dash.get(staging_id, (0.0, 0.0))
+        fits_out: list[dict] = []
 
         for df in doctrine.doctrine_fits:
             calc = calculate(
@@ -1324,6 +1332,12 @@ async def compute_doctrine_report(session, doctrine_id: int | None = None) -> di
                 route.value_pct if route else None,
                 broker_fee_d, sales_tax_d,
             )
+            fits_out.append({
+                "name": df.fit.name,
+                "status": _AVAIL_STATUS.get(calc["status"], "unknown"),
+                "stock": calc["completable"],
+                "target": df.target_qty,
+            })
             if calc["completable"] >= df.target_qty:
                 fits_stocked += 1
             else:
@@ -1365,6 +1379,7 @@ async def compute_doctrine_report(session, doctrine_id: int | None = None) -> di
         doctrine_summary.append({
             "id": doctrine.id, "name": doctrine.name,
             "status": doc_status, "fits_stocked": fits_stocked, "fits_total": fits_total,
+            "fits": fits_out,
         })
 
     # Poll overdue alert

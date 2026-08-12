@@ -26,6 +26,7 @@ class DoctrinePlanEntry:
     action: str  # create | update | delete
     name: str
     doctrine_id: int | None
+    location_id: int | None = None
     fits: list[FitPlanEntry] = field(default_factory=list)
 
 
@@ -54,7 +55,14 @@ _DOCTRINE_OPTS = (
 )
 
 
-async def build_and_apply_plan(session, parsed_doctrines: list[ParsedDoctrine], *, dry_run: bool) -> ImportPlan:
+async def build_and_apply_plan(
+    session,
+    parsed_doctrines: list[ParsedDoctrine],
+    *,
+    dry_run: bool,
+    location_overrides: dict[str, int | None] | None = None,
+) -> ImportPlan:
+    location_overrides = location_overrides or {}
     existing_doctrines = (await session.execute(
         select(Doctrine).options(*_DOCTRINE_OPTS)
     )).scalars().all()
@@ -96,6 +104,9 @@ async def build_and_apply_plan(session, parsed_doctrines: list[ParsedDoctrine], 
             doctrine_row = Doctrine(name=pd.name, description=None, location_id=None, doctrine_fits=[])
             session.add(doctrine_row)
             await session.flush()
+
+        if pd.name in location_overrides:
+            doctrine_row.location_id = location_overrides[pd.name]
 
         # Dedup fits within this doctrine by parsed fit name (case-insensitive).
         # Fits that failed to parse have no fit_name and are never deduped.
@@ -213,6 +224,7 @@ async def build_and_apply_plan(session, parsed_doctrines: list[ParsedDoctrine], 
             action=action,
             name=pd.name,
             doctrine_id=doctrine_row.id,
+            location_id=doctrine_row.location_id,
             fits=fit_entries,
         ))
 
@@ -237,6 +249,7 @@ async def build_and_apply_plan(session, parsed_doctrines: list[ParsedDoctrine], 
             action="delete",
             name=doc.name,
             doctrine_id=doc.id,
+            location_id=doc.location_id,
             fits=fit_entries,
         ))
         await session.delete(doc)

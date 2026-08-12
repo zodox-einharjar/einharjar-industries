@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -25,6 +25,7 @@ interface DoctrinePlanEntry {
   action: DoctrineAction
   name: string
   doctrine_id: number | null
+  location_id: number | null
   fits: FitPlanEntry[]
 }
 
@@ -35,6 +36,11 @@ interface ImportPlanResponse {
   duplicate_doctrine_names: string[]
   duplicate_fit_names: string[]
   summary: Record<string, number>
+}
+
+interface LocationOption {
+  id: number
+  name: string
 }
 
 // ── Style constants ───────────────────────────────────────────────────────────
@@ -75,20 +81,44 @@ export function DoctrineImportClient() {
   const [err, setErr] = useState<string | null>(null)
   const [applied, setApplied] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [locations, setLocations] = useState<LocationOption[]>([])
+  const [locationSelections, setLocationSelections] = useState<Record<string, number | ''>>({})
+
+  useEffect(() => {
+    fetch('/api/locations').then(r => r.json()).then(setLocations).catch(() => {})
+  }, [])
 
   async function runImport(dryRun: boolean) {
     setBusy(true)
     setErr(null)
     try {
+      const locationOverrides: Record<string, number | null> = {}
+      if (!dryRun && plan) {
+        for (const d of plan.doctrines) {
+          if (d.action === 'delete') continue
+          const sel = locationSelections[d.name]
+          locationOverrides[d.name] = sel ? sel : null
+        }
+      }
       const r = await fetch('/api/doctrines/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ html, dry_run: dryRun }),
+        body: JSON.stringify({ html, dry_run: dryRun, location_overrides: locationOverrides }),
       })
       const data = await r.json().catch(() => null)
       if (!r.ok) throw new Error(data?.detail || `Import failed (${r.status})`)
-      setPlan(data as ImportPlanResponse)
+      const newPlan = data as ImportPlanResponse
+      setPlan(newPlan)
       setApplied(!dryRun)
+      if (dryRun) {
+        setLocationSelections(prev => {
+          const next = { ...prev }
+          for (const d of newPlan.doctrines) {
+            if (!(d.name in next)) next[d.name] = d.location_id ?? ''
+          }
+          return next
+        })
+      }
     } catch (e: any) {
       setErr(e.message)
     } finally {
@@ -192,14 +222,25 @@ export function DoctrineImportClient() {
       <div className="space-y-2 mb-6">
         {plan.doctrines.map(d => (
           <div key={d.name} className="border border-wire rounded">
-            <button onClick={() => toggle(d.name)} className="w-full flex items-center justify-between px-4 py-2.5 text-left">
-              <span className="flex items-center gap-2 min-w-0">
+            <div className="w-full flex items-center justify-between px-4 py-2.5 gap-2">
+              <button onClick={() => toggle(d.name)} className="flex items-center gap-2 min-w-0 text-left flex-1">
                 <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-medium shrink-0 ${ACTION_BADGE[d.action]}`}>{d.action}</span>
                 <span className="text-[13px] text-primary font-medium truncate">{d.name}</span>
                 <span className="text-[11px] text-faint shrink-0">{d.fits.length} fit{d.fits.length !== 1 ? 's' : ''}</span>
-              </span>
-              <span className="text-muted text-[11px] shrink-0">{collapsed.has(d.name) ? '▸' : '▾'}</span>
-            </button>
+              </button>
+              {d.action !== 'delete' && (
+                <select
+                  value={locationSelections[d.name] ?? ''}
+                  onChange={e => setLocationSelections(prev => ({ ...prev, [d.name]: e.target.value ? +e.target.value : '' }))}
+                  disabled={applied}
+                  className="bg-canvas border border-wire rounded px-2 py-1 text-[11px] text-primary focus:outline-none focus:border-accent shrink-0"
+                >
+                  <option value="">Staging: none</option>
+                  {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              )}
+              <button onClick={() => toggle(d.name)} className="text-muted text-[11px] shrink-0">{collapsed.has(d.name) ? '▸' : '▾'}</button>
+            </div>
             {!collapsed.has(d.name) && (
               <div className="border-t border-wire divide-y divide-wire">
                 {d.fits.map((f, i) => (
