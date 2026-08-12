@@ -331,3 +331,37 @@ class Contract(Base):
     end_location_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     last_synced: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+
+class IndustryJob(Base):
+    __tablename__ = "industry_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
+    character_id: Mapped[int] = mapped_column(ForeignKey("characters.id", ondelete="CASCADE"), nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)  # "char" | "corp"
+
+    installer_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    activity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    blueprint_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    blueprint_type_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    blueprint_location_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    output_location_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    facility_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    runs: Mapped[int] = mapped_column(Integer, nullable=False)
+    licensed_runs: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost: Mapped[Decimal | None] = mapped_column(Numeric(20, 2), nullable=True)
+    probability: Mapped[float | None] = mapped_column(Float, nullable=True)
+    product_type_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    successful_runs: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    duration: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_date: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    end_date: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    pause_date: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    completed_date: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    completed_character_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    last_synced: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)

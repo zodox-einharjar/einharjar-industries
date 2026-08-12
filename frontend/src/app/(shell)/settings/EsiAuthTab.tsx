@@ -22,6 +22,8 @@ interface PollSettings {
   poll_corp_wallet: number[]
   poll_char_contracts: number[]
   poll_corp_contracts: number[]
+  poll_char_industry_jobs: number[]
+  poll_corp_industry_jobs: number[]
 }
 
 const HAS_SCOPE = (char: EVECharacter, scope: string) => char.scopes.includes(scope)
@@ -32,6 +34,8 @@ const SCOPE_CHAR_WALLET    = 'esi-wallet.read_character_wallet.v1'
 const SCOPE_CORP_WALLET    = 'esi-wallet.read_corporation_wallets.v1'
 const SCOPE_CHAR_CONTRACTS = 'esi-contracts.read_character_contracts.v1'
 const SCOPE_CORP_CONTRACTS = 'esi-contracts.read_corporation_contracts.v1'
+const SCOPE_CHAR_JOBS      = 'esi-industry.read_character_jobs.v1'
+const SCOPE_CORP_JOBS      = 'esi-industry.read_corporation_jobs.v1'
 
 function TokenPill({ valid }: { valid: boolean }) {
   return (
@@ -83,6 +87,8 @@ export function EsiAuthTab() {
     poll_corp_wallet: [],
     poll_char_contracts: [],
     poll_corp_contracts: [],
+    poll_char_industry_jobs: [],
+    poll_corp_industry_jobs: [],
   })
   const [loading, setLoading]       = useState(true)
   const [saving, setSaving]         = useState(false)
@@ -110,6 +116,8 @@ export function EsiAuthTab() {
         poll_corp_wallet:     settingsData.poll_corp_wallet     ?? [],
         poll_char_contracts:  settingsData.poll_char_contracts  ?? [],
         poll_corp_contracts:  settingsData.poll_corp_contracts  ?? [],
+        poll_char_industry_jobs: settingsData.poll_char_industry_jobs ?? [],
+        poll_corp_industry_jobs: settingsData.poll_corp_industry_jobs ?? [],
       })
     } catch {
       setError('Failed to load characters.')
@@ -297,6 +305,18 @@ export function EsiAuthTab() {
                           disabled={!HAS_SCOPE(char, SCOPE_CORP_CONTRACTS) || !hasCorpId}
                           onChange={on => toggleId('poll_corp_contracts', char.character_id, on)}
                         />
+                        <Toggle
+                          label="Character industry jobs"
+                          checked={pollSettings.poll_char_industry_jobs.includes(char.character_id)}
+                          disabled={!HAS_SCOPE(char, SCOPE_CHAR_JOBS)}
+                          onChange={on => toggleId('poll_char_industry_jobs', char.character_id, on)}
+                        />
+                        <Toggle
+                          label="Corp industry jobs"
+                          checked={pollSettings.poll_corp_industry_jobs.includes(char.character_id)}
+                          disabled={!HAS_SCOPE(char, SCOPE_CORP_JOBS) || !hasCorpId}
+                          onChange={on => toggleId('poll_corp_industry_jobs', char.character_id, on)}
+                        />
                       </div>
                       {!hasCorpId && (
                         <p className="text-[11px] text-faint mt-2">
@@ -402,7 +422,7 @@ export function EsiAuthTab() {
       </div>
 
       <p className="text-[11px] text-faint -mt-2">
-        Polling toggles control which characters and corporations are queried for orders, wallet transactions, and contracts.
+        Polling toggles control which characters and corporations are queried for orders, wallet transactions, contracts, and industry jobs.
         When no toggles are enabled for a category, all characters with the required scope are polled automatically.
       </p>
 

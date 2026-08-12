@@ -11,6 +11,7 @@ from .auth.router import router as auth_router
 from .contracts.router import router as contracts_router
 from .doctrines.router import router as doctrines_router
 from .industry.router import router as industry_router
+from .industry_jobs.router import router as industry_jobs_router
 from .inventory.router import router as inventory_router
 from .market_listings.router import router as market_listings_router
 from .settings.router import router as settings_router
@@ -39,6 +40,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(auth_router)
 app.include_router(contracts_router)
 app.include_router(doctrines_router)
+app.include_router(industry_jobs_router)
 app.include_router(industry_router)
 app.include_router(inventory_router)
 app.include_router(market_listings_router)

@@ -44,7 +44,10 @@ const NAV = [
   },
   {
     label: 'Industry',
-    items: [{ label: 'Projects', href: '/industry' }],
+    items: [
+      { label: 'Projects', href: '/industry' },
+      { label: 'Jobs', href: '/industry/jobs' },
+    ],
   },
   {
     label: 'Market',
@@ -64,10 +67,12 @@ const NAV = [
 export function Sidebar({ user }: { user: User }) {
   const pathname = usePathname()
 
-  const isActive = (href: string) =>
-    href === '/'
-      ? pathname === '/'
-      : pathname === href || pathname.startsWith(href + '/')
+  // Highlight only the most specific matching nav item, so a sub-route like
+  // /industry/jobs doesn't also light up the sibling /industry entry.
+  const activeHref = NAV.flatMap(g => g.items.map(i => i.href))
+    .filter(href => href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(href + '/'))
+    .sort((a, b) => b.length - a.length)[0]
+  const isActive = (href: string) => href === activeHref
 
   return (
     <aside className="w-[180px] flex-shrink-0 h-full bg-surface border-r border-wire flex flex-col">
