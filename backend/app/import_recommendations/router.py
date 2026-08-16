@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
@@ -154,10 +155,16 @@ async def import_recommendations(window_days: int = 14):
             key = (region_id, type_id)
             if key not in history_cache:
                 history_cache[key] = await get_history(region_id, type_id)
-            rows = history_cache[key][-_HISTORY_WINDOW_DAYS:]
-            if not rows:
-                return 0.0
-            return sum(r.get("volume", 0) for r in rows) / len(rows)
+            # ESI omits no-trade days entirely rather than returning zero-volume rows, so
+            # filter by actual calendar age and divide by the fixed window — not by the
+            # count of rows returned, which would silently skip gaps and inflate the average.
+            today = datetime.now(timezone.utc).date()
+            total = 0
+            for r in history_cache[key]:
+                age = (today - datetime.strptime(r["date"], "%Y-%m-%d").date()).days
+                if 0 <= age <= _HISTORY_WINDOW_DAYS:
+                    total += r.get("volume", 0)
+            return total / _HISTORY_WINDOW_DAYS
 
         type_vols = type_volumes(list({tid for _, tid in items_acc.keys()}))
 
