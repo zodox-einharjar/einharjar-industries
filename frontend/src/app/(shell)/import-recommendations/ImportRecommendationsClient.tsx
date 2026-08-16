@@ -345,10 +345,11 @@ function niceMax(n: number): number {
   return Math.ceil(n / magnitude) * magnitude
 }
 
-function filterGroup(group: RecommendationGroup, minProfit: number, minProfitPct: number): RecommendationGroup {
+function filterGroup(group: RecommendationGroup, minProfit: number, minProfitPct: number, minTotalProfit: number): RecommendationGroup {
   const items = group.items.filter(i =>
     (minProfit <= 0 || (i.profit_per_unit != null && i.profit_per_unit >= minProfit)) &&
-    (minProfitPct <= 0 || ((profitPct(i) ?? -Infinity) >= minProfitPct))
+    (minProfitPct <= 0 || ((profitPct(i) ?? -Infinity) >= minProfitPct)) &&
+    (minTotalProfit <= 0 || (i.total_profit != null && i.total_profit >= minTotalProfit))
   )
   return {
     ...group,
@@ -366,6 +367,7 @@ export function ImportRecommendationsClient() {
   const [windowDays, setWindowDays] = useState(14)
   const [minProfit, setMinProfit] = useState(0)
   const [minProfitPct, setMinProfitPct] = useState(0)
+  const [minTotalProfit, setMinTotalProfit] = useState(0)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -381,12 +383,13 @@ export function ImportRecommendationsClient() {
   const allItems = useMemo(() => data?.groups.flatMap(g => g.items) ?? [], [data])
   const maxProfit = useMemo(() => niceMax(Math.max(0, ...allItems.map(i => i.profit_per_unit ?? 0))), [allItems])
   const maxProfitPct = useMemo(() => niceMax(Math.max(0, ...allItems.map(i => profitPct(i) ?? 0))), [allItems])
+  const maxTotalProfit = useMemo(() => niceMax(Math.max(0, ...allItems.map(i => i.total_profit ?? 0))), [allItems])
 
   const filteredGroups = useMemo(
-    () => (data?.groups ?? []).map(g => filterGroup(g, minProfit, minProfitPct)).filter(g => g.items.length > 0),
-    [data, minProfit, minProfitPct]
+    () => (data?.groups ?? []).map(g => filterGroup(g, minProfit, minProfitPct, minTotalProfit)).filter(g => g.items.length > 0),
+    [data, minProfit, minProfitPct, minTotalProfit]
   )
-  const filtersActive = minProfit > 0 || minProfitPct > 0
+  const filtersActive = minProfit > 0 || minProfitPct > 0 || minTotalProfit > 0
 
   return (
     <div className="space-y-4">
@@ -435,9 +438,22 @@ export function ImportRecommendationsClient() {
           />
           <span className="text-[11px] text-muted font-mono w-14">{minProfitPct.toFixed(0)}%</span>
         </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-faint whitespace-nowrap">Min total profit</span>
+          <input
+            type="range"
+            min={0}
+            max={maxTotalProfit || 1}
+            step={Math.max(1, maxTotalProfit / 200)}
+            value={Math.min(minTotalProfit, maxTotalProfit)}
+            onChange={e => setMinTotalProfit(Number(e.target.value))}
+            className="accent-[color:var(--accent)] w-36"
+          />
+          <span className="text-[11px] text-muted font-mono w-16">{iska(minTotalProfit)}</span>
+        </div>
         {filtersActive && (
           <button
-            onClick={() => { setMinProfit(0); setMinProfitPct(0) }}
+            onClick={() => { setMinProfit(0); setMinProfitPct(0); setMinTotalProfit(0) }}
             className="text-[11px] text-muted hover:text-accent transition-colors"
           >
             Clear filters

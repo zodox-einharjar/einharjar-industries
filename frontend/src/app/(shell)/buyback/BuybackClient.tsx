@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -96,6 +96,12 @@ function buildMultibuy(items: { name: string; qty: number }[]): string {
   return items.map(i => `${i.name} x${i.qty}`).join('\n')
 }
 
+function niceMax(n: number): number {
+  if (n <= 0) return 0
+  const magnitude = 10 ** Math.floor(Math.log10(n))
+  return Math.ceil(n / magnitude) * magnitude
+}
+
 function sortValue(item: RecommendedItem, key: SortKey): number | string {
   switch (key) {
     case 'name':                return item.name
@@ -152,6 +158,9 @@ export function BuybackClient() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [sortKey, setSortKey] = useState<SortKey>('total_profit')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [minProfit, setMinProfit] = useState(0)
+  const [minProfitPct, setMinProfitPct] = useState(0)
+  const [minTotalProfit, setMinTotalProfit] = useState(0)
   const [created, setCreated] = useState(0)
   const [copied, setCopied] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -168,29 +177,49 @@ export function BuybackClient() {
     else { setSortKey(key); setSortDir(key === 'name' ? 'asc' : 'desc') }
   }
 
-  function toggleSelect(index: number) {
+  function toggleSelect(type_id: number) {
     setSelected(prev => {
       const next = new Set(prev)
-      next.has(index) ? next.delete(index) : next.add(index)
+      next.has(type_id) ? next.delete(type_id) : next.add(type_id)
       return next
     })
   }
 
-  const allSelected = result != null && result.recommended.length > 0 && result.recommended.every((_, i) => selected.has(i))
+  const maxProfit = useMemo(
+    () => niceMax(Math.max(0, ...(result?.recommended.map(i => i.profit_per_unit) ?? []))),
+    [result]
+  )
+  const maxProfitPct = useMemo(
+    () => niceMax(Math.max(0, ...(result?.recommended.map(i => i.profit_pct ?? 0) ?? []))),
+    [result]
+  )
+  const maxTotalProfit = useMemo(
+    () => niceMax(Math.max(0, ...(result?.recommended.map(i => i.total_profit) ?? []))),
+    [result]
+  )
+  const filtersActive = minProfit > 0 || minProfitPct > 0 || minTotalProfit > 0
+
+  const filteredRecommended = useMemo(() => {
+    if (!result) return []
+    return result.recommended.filter(i =>
+      (minProfit <= 0 || i.profit_per_unit >= minProfit) &&
+      (minProfitPct <= 0 || (i.profit_pct ?? -Infinity) >= minProfitPct) &&
+      (minTotalProfit <= 0 || i.total_profit >= minTotalProfit)
+    )
+  }, [result, minProfit, minProfitPct, minTotalProfit])
+
+  const allSelected = filteredRecommended.length > 0 && filteredRecommended.every(i => selected.has(i.type_id))
 
   function toggleSelectAll() {
-    if (!result) return
-    setSelected(allSelected ? new Set() : new Set(result.recommended.map((_, i) => i)))
+    setSelected(allSelected ? new Set() : new Set(filteredRecommended.map(i => i.type_id)))
   }
 
-  const sortedRecommended = result
-    ? [...result.recommended].sort((a, b) => {
-        const av = sortValue(a, sortKey)
-        const bv = sortValue(b, sortKey)
-        const cmp = av < bv ? -1 : av > bv ? 1 : 0
-        return sortDir === 'asc' ? cmp : -cmp
-      })
-    : []
+  const sortedRecommended = [...filteredRecommended].sort((a, b) => {
+    const av = sortValue(a, sortKey)
+    const bv = sortValue(b, sortKey)
+    const cmp = av < bv ? -1 : av > bv ? 1 : 0
+    return sortDir === 'asc' ? cmp : -cmp
+  })
 
   async function handleEvaluate() {
     if (!text.trim() || !locationId) return
@@ -214,7 +243,7 @@ export function BuybackClient() {
 
   async function copyList() {
     if (!result) return
-    const items = result.recommended.filter((_, i) => selected.has(i))
+    const items = result.recommended.filter(i => selected.has(i.type_id))
     if (items.length === 0) return
     await copyText(buildMultibuy(items.map(i => ({ name: i.name, qty: i.qty }))))
     setCopied(true)
@@ -224,7 +253,7 @@ export function BuybackClient() {
   async function handleAccept() {
     if (!result || !locationId) return
     const items = result.recommended
-      .filter((_, i) => selected.has(i))
+      .filter(i => selected.has(i.type_id))
       .map(r => ({ type_id: r.type_id, item_name: r.name, qty: r.qty, unit_price: r.unit_price }))
     if (items.length === 0) return
     setLoading(true); setError(null)
@@ -246,6 +275,7 @@ export function BuybackClient() {
 
   function reset() {
     setText(''); setResult(null); setSelected(new Set()); setStep('form'); setError(null)
+    setMinProfit(0); setMinProfitPct(0); setMinTotalProfit(0)
   }
 
   if (step === 'done') return (
@@ -329,9 +359,65 @@ export function BuybackClient() {
         </div>
       )}
 
+      {result.recommended.length > 0 && (
+        <div className="flex items-center gap-6 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-faint whitespace-nowrap">Min profit/u</span>
+            <input
+              type="range"
+              min={0}
+              max={maxProfit || 1}
+              step={Math.max(1, maxProfit / 200)}
+              value={Math.min(minProfit, maxProfit)}
+              onChange={e => setMinProfit(Number(e.target.value))}
+              className="accent-[color:var(--accent)] w-36"
+            />
+            <span className="text-[11px] text-muted font-mono w-16">{iska(minProfit)}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-faint whitespace-nowrap">Min profit %/u</span>
+            <input
+              type="range"
+              min={0}
+              max={maxProfitPct || 1}
+              step={Math.max(1, maxProfitPct / 200)}
+              value={Math.min(minProfitPct, maxProfitPct)}
+              onChange={e => setMinProfitPct(Number(e.target.value))}
+              className="accent-[color:var(--accent)] w-36"
+            />
+            <span className="text-[11px] text-muted font-mono w-14">{minProfitPct.toFixed(0)}%</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-faint whitespace-nowrap">Min total profit</span>
+            <input
+              type="range"
+              min={0}
+              max={maxTotalProfit || 1}
+              step={Math.max(1, maxTotalProfit / 200)}
+              value={Math.min(minTotalProfit, maxTotalProfit)}
+              onChange={e => setMinTotalProfit(Number(e.target.value))}
+              className="accent-[color:var(--accent)] w-36"
+            />
+            <span className="text-[11px] text-muted font-mono w-16">{iska(minTotalProfit)}</span>
+          </div>
+          {filtersActive && (
+            <button
+              onClick={() => { setMinProfit(0); setMinProfitPct(0); setMinTotalProfit(0) }}
+              className="text-[11px] text-muted hover:text-accent transition-colors"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
+
       {result.recommended.length === 0 ? (
         <div className="bg-surface border border-wire rounded p-8 text-center text-muted text-[13px]">
           Nothing in this list is profitable at {result.location_name}'s current prices.
+        </div>
+      ) : filteredRecommended.length === 0 ? (
+        <div className="bg-surface border border-wire rounded p-8 text-center text-muted text-[13px]">
+          No items match the current filters.
         </div>
       ) : (
         <div className="border border-wire rounded overflow-x-auto">
@@ -353,10 +439,10 @@ export function BuybackClient() {
               </tr>
             </thead>
             <tbody className="divide-y divide-wire">
-              {sortedRecommended.map((item, i) => (
-                <tr key={i} className={item.low_velocity ? 'opacity-50' : ''}>
+              {sortedRecommended.map(item => (
+                <tr key={item.type_id} className={item.low_velocity ? 'opacity-50' : ''}>
                   <td className="px-3 py-2">
-                    <input type="checkbox" checked={selected.has(i)} onChange={() => toggleSelect(i)} aria-label={`Select ${item.name}`} className="align-middle" />
+                    <input type="checkbox" checked={selected.has(item.type_id)} onChange={() => toggleSelect(item.type_id)} aria-label={`Select ${item.name}`} className="align-middle" />
                   </td>
                   <td className={TD}>
                     <span className="text-primary">{item.name}</span>
