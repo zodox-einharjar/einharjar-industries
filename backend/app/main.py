@@ -8,6 +8,7 @@ from .config import settings
 from .db import create_tables
 from .esi.client import esi
 from .auth.router import router as auth_router
+from .buyback.router import router as buyback_router
 from .contracts.router import router as contracts_router
 from .doctrines.router import router as doctrines_router
 from .industry.router import router as industry_router
@@ -40,6 +41,7 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(auth_router)
+app.include_router(buyback_router)
 app.include_router(contracts_router)
 app.include_router(doctrines_router)
 app.include_router(industry_jobs_router)

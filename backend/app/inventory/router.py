@@ -15,6 +15,8 @@ from ..sde import (
     station_by_name, type_id_by_name, type_volume,
     type_names, type_volumes, type_categories, system_name_for_station,
 )
+from .janice_parser import parse_janice_text
+from .lots import save_lots
 from .wallet_parser import parse_wallet_text
 
 router = APIRouter(prefix="/inventory", dependencies=[Depends(get_current_character)])
@@ -637,71 +639,18 @@ async def import_save_json(body: ImportRequest):
 
 @router.post("/import-janice-preview")
 async def import_janice_preview(body: JanicePreviewRequest):
-    items = []
-    errors = []
-
-    for lineno, raw in enumerate(body.text.strip().splitlines(), 1):
-        # Janice copies as tab-separated; fall back to 2+-space split
-        parts = raw.split('\t')
-        if len(parts) < 5:
-            import re as _re
-            parts = _re.split(r' {2,}', raw.strip())
-        if len(parts) < 5:
-            errors.append(f"Line {lineno}: expected 5 columns (name, qty, vol, buy, sell)")
-            continue
-
-        name = parts[0].strip()
-        try:
-            qty = int(parts[1].replace(',', '').strip())
-        except ValueError:
-            errors.append(f"Line {lineno}: invalid quantity '{parts[1].strip()}'")
-            continue
-        try:
-            buy_p  = float(parts[3].replace(',', '').strip())
-            sell_p = float(parts[4].replace(',', '').strip())
-        except ValueError:
-            errors.append(f"Line {lineno}: invalid price")
-            continue
-
-        if body.price_type == "buy":
-            unit_price = buy_p
-        elif body.price_type == "sell":
-            unit_price = sell_p
-        else:
-            unit_price = (buy_p + sell_p) / 2
-
-        tid = type_id_by_name(name)
-        canonical = type_names([tid]).get(tid) if tid else None
-        items.append({
-            "type_id": tid,
-            "item_name": canonical or name,
-            "qty": qty,
-            "unit_price": unit_price,
-            "ok": tid is not None,
-        })
-
+    items, errors = parse_janice_text(body.text, body.price_type)
     return {"items": items, "errors": errors}
 
 
 @router.post("/import-janice-save")
 async def import_janice_save(body: JaniceSaveRequest):
-    now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as session:
         loc = await session.get(Location, body.location_id)
         if not loc:
             raise HTTPException(404, "Location not found")
-        for item in body.items:
-            session.add(InventoryLot(
-                type_id=item.type_id,
-                item_name=item.item_name,
-                location_id=body.location_id,
-                qty_original=item.qty,
-                qty_remaining=item.qty,
-                unit_cost=Decimal(str(item.unit_price)),
-                purchased_at=now,
-                source="janice",
-            ))
+        created = save_lots(session, body.items, body.location_id, source="janice")
         await session.commit()
-    return {"created": len(body.items)}
+    return {"created": created}
 
 
