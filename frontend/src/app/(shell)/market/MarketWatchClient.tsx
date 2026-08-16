@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -40,9 +41,9 @@ const TH = 'px-3 py-2 text-[10px] text-muted font-semibold uppercase tracking-wi
 const BTN_SM = 'px-3 py-1 text-[12px] border border-wire text-muted hover:text-primary hover:border-secondary rounded transition-colors'
 const BTN_SM_PRIMARY = 'px-3 py-1 text-[12px] border border-accent text-accent hover:bg-accent hover:text-canvas rounded transition-colors'
 
-// ── Add-item search box ──────────────────────────────────────────────────────
+// ── Item lookup search box ───────────────────────────────────────────────────
 
-function ItemSearchBox({ onAdd, onClose }: { onAdd: (type_id: number) => void; onClose: () => void }) {
+function ItemSearchBox({ onSelect, onClose }: { onSelect: (type_id: number) => void; onClose: () => void }) {
   const [value, setValue] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
 
@@ -70,7 +71,7 @@ function ItemSearchBox({ onAdd, onClose }: { onAdd: (type_id: number) => void; o
           {results.map(r => (
             <div key={r.type_id} className="flex items-center justify-between px-3 py-1.5 hover:bg-surface-hi">
               <span className="text-[13px] text-primary">{r.name}</span>
-              <button onClick={() => onAdd(r.type_id)} className="text-[11px] text-accent hover:underline">Add</button>
+              <button onClick={() => onSelect(r.type_id)} className="text-[11px] text-accent hover:underline">View</button>
             </div>
           ))}
         </div>
@@ -82,10 +83,11 @@ function ItemSearchBox({ onAdd, onClose }: { onAdd: (type_id: number) => void; o
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function MarketWatchClient() {
+  const router = useRouter()
   const [items, setItems] = useState<TrackedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [adding, setAdding] = useState(false)
+  const [lookingUp, setLookingUp] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -98,14 +100,8 @@ export function MarketWatchClient() {
 
   useEffect(() => { load() }, [load])
 
-  async function addItem(type_id: number) {
-    await fetch('/api/market-watch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type_id }),
-    })
-    setAdding(false)
-    load()
+  function viewItem(type_id: number) {
+    router.push(`/market/${type_id}`)
   }
 
   async function removeItem(type_id: number) {
@@ -117,10 +113,10 @@ export function MarketWatchClient() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="text-[11px] font-semibold tracking-[0.1em] text-faint uppercase">Tracked items</div>
-        <button onClick={() => setAdding(!adding)} className={BTN_SM_PRIMARY}>+ Add item</button>
+        <button onClick={() => setLookingUp(!lookingUp)} className={BTN_SM_PRIMARY}>Look up item</button>
       </div>
 
-      {adding && <ItemSearchBox onAdd={addItem} onClose={() => setAdding(false)} />}
+      {lookingUp && <ItemSearchBox onSelect={viewItem} onClose={() => setLookingUp(false)} />}
 
       {loading ? (
         <div className="h-40 bg-surface border border-wire rounded animate-pulse" />
@@ -128,7 +124,7 @@ export function MarketWatchClient() {
         <div className="bg-surface border border-wire rounded p-8 text-center text-muted text-[13px]">{error}</div>
       ) : items.length === 0 ? (
         <div className="bg-surface border border-wire rounded p-8 text-center text-muted text-[13px]">
-          Nothing tracked yet. Items used in doctrine fits are tracked automatically — or add one manually above.
+          Nothing tracked yet. Items used in doctrine fits are tracked automatically — or look up an item above and track it from its page.
         </div>
       ) : (
         <div className="border border-wire rounded overflow-hidden">
