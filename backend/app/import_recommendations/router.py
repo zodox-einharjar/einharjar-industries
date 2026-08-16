@@ -1,5 +1,4 @@
 from collections import defaultdict
-from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
@@ -8,14 +7,13 @@ from sqlalchemy import func, select
 from ..auth.deps import get_current_character
 from ..db import AsyncSessionLocal
 from ..doctrines.shortfall import aggregate_shortfalls
-from ..market.history import get_history
+from ..market.velocity import daily_velocity
 from ..models import FreightRoute, InventoryLot, Location, MarketOrder
 from ..sde import resolve_region_id, type_volumes
 
 router = APIRouter(prefix="/import-recommendations", dependencies=[Depends(get_current_character)])
 
 _JITA_EVE_ID = 60003760
-_HISTORY_WINDOW_DAYS = 30  # velocity is averaged over the most recent N days of ESI history
 
 
 def _walk_sell_book(orders: list[MarketOrder], qty: int) -> dict:
@@ -98,21 +96,6 @@ async def import_recommendations(window_days: int = 14):
 
         history_cache: dict[tuple[int, int], list[dict]] = {}
 
-        async def velocity_daily(region_id: int, type_id: int) -> float:
-            key = (region_id, type_id)
-            if key not in history_cache:
-                history_cache[key] = await get_history(region_id, type_id)
-            # ESI omits no-trade days entirely rather than returning zero-volume rows, so
-            # filter by actual calendar age and divide by the fixed window — not by the
-            # count of rows returned, which would silently skip gaps and inflate the average.
-            today = datetime.now(timezone.utc).date()
-            total = 0
-            for r in history_cache[key]:
-                age = (today - datetime.strptime(r["date"], "%Y-%m-%d").date()).days
-                if 0 <= age <= _HISTORY_WINDOW_DAYS:
-                    total += r.get("volume", 0)
-            return total / _HISTORY_WINDOW_DAYS
-
         type_vols = type_volumes(list({tid for _, tid in items_acc.keys()}))
 
         by_staging: dict[int, list[tuple[int, dict]]] = defaultdict(list)
@@ -140,7 +123,7 @@ async def import_recommendations(window_days: int = 14):
                 if qty_after_netting <= 0:
                     continue
 
-                v_daily = await velocity_daily(region_id, type_id) if region_id else 0.0
+                v_daily = await daily_velocity(region_id, type_id, history_cache) if region_id else 0.0
                 low_velocity = v_daily <= 0
                 qty_to_buy = 0 if low_velocity else min(qty_after_netting, round(v_daily * window_days))
 

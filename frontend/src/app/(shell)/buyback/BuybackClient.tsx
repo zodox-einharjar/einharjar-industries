@@ -23,6 +23,9 @@ interface RecommendedItem {
   profit_per_unit: number
   profit_pct: number | null
   total_profit: number
+  velocity_daily: number
+  low_velocity: boolean
+  days_to_sell: number | null
   needed: boolean
   doctrines: DoctrineRef[]
 }
@@ -48,7 +51,9 @@ interface EvaluateResponse {
   parse_errors: string[]
 }
 
-type SortKey = 'name' | 'qty' | 'unit_price' | 'staging_sell_price' | 'profit_per_unit' | 'profit_pct' | 'total_profit'
+type SortKey =
+  | 'name' | 'qty' | 'unit_price' | 'staging_sell_price' | 'profit_per_unit' | 'profit_pct'
+  | 'total_profit' | 'velocity_daily' | 'days_to_sell'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -73,6 +78,24 @@ function fmtPct(pct: number | null): string {
   return pct != null ? `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : '—'
 }
 
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text)
+  } else {
+    const el = document.createElement('textarea')
+    el.value = text
+    el.style.cssText = 'position:fixed;opacity:0'
+    document.body.appendChild(el)
+    el.focus(); el.select()
+    document.execCommand('copy')
+    document.body.removeChild(el)
+  }
+}
+
+function buildMultibuy(items: { name: string; qty: number }[]): string {
+  return items.map(i => `${i.name} x${i.qty}`).join('\n')
+}
+
 function sortValue(item: RecommendedItem, key: SortKey): number | string {
   switch (key) {
     case 'name':                return item.name
@@ -82,6 +105,8 @@ function sortValue(item: RecommendedItem, key: SortKey): number | string {
     case 'profit_per_unit':     return item.profit_per_unit
     case 'profit_pct':          return item.profit_pct ?? -Infinity
     case 'total_profit':        return item.total_profit
+    case 'velocity_daily':      return item.velocity_daily
+    case 'days_to_sell':        return item.days_to_sell ?? Infinity
   }
 }
 
@@ -128,6 +153,7 @@ export function BuybackClient() {
   const [sortKey, setSortKey] = useState<SortKey>('total_profit')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [created, setCreated] = useState(0)
+  const [copied, setCopied] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -184,6 +210,15 @@ export function BuybackClient() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function copyList() {
+    if (!result) return
+    const items = result.recommended.filter((_, i) => selected.has(i))
+    if (items.length === 0) return
+    await copyText(buildMultibuy(items.map(i => ({ name: i.name, qty: i.qty }))))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
   }
 
   async function handleAccept() {
@@ -313,11 +348,13 @@ export function BuybackClient() {
                 <SortTh label="Profit/u" sortKey="profit_per_unit" current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTh label="Profit %/u" sortKey="profit_pct" current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTh label="Total profit" sortKey="total_profit" current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Vel/d" sortKey="velocity_daily" current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Days to sell" sortKey="days_to_sell" current={sortKey} dir={sortDir} onSort={handleSort} />
               </tr>
             </thead>
             <tbody className="divide-y divide-wire">
               {sortedRecommended.map((item, i) => (
-                <tr key={i}>
+                <tr key={i} className={item.low_velocity ? 'opacity-50' : ''}>
                   <td className="px-3 py-2">
                     <input type="checkbox" checked={selected.has(i)} onChange={() => toggleSelect(i)} aria-label={`Select ${item.name}`} className="align-middle" />
                   </td>
@@ -326,6 +363,9 @@ export function BuybackClient() {
                     {item.needed && (
                       <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide border border-accent text-accent">needed</span>
                     )}
+                    {item.low_velocity && (
+                      <span className="ml-1.5 text-[10px] text-faint uppercase">no sales data</span>
+                    )}
                   </td>
                   <td className={`${TD} text-right font-mono text-secondary`}>{item.qty.toLocaleString()}</td>
                   <td className={`${TD} text-right font-mono text-muted`}>{iska(item.unit_price)}</td>
@@ -333,6 +373,8 @@ export function BuybackClient() {
                   <td className={`${TD} text-right font-mono ${profitCls(item.profit_per_unit)}`}>{iska(item.profit_per_unit)}</td>
                   <td className={`${TD} text-right font-mono ${profitCls(item.profit_per_unit)}`}>{fmtPct(item.profit_pct)}</td>
                   <td className={`${TD} text-right font-mono font-semibold ${profitCls(item.total_profit)}`}>{iska(item.total_profit)}</td>
+                  <td className={`${TD} text-right font-mono text-muted`}>{item.velocity_daily.toLocaleString()}</td>
+                  <td className={`${TD} text-right font-mono text-muted`}>{item.days_to_sell != null ? `${item.days_to_sell}d` : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -385,7 +427,10 @@ export function BuybackClient() {
         </div>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <button onClick={copyList} disabled={selected.size === 0} className={BTN_SM}>
+          {copied ? '✓ Copied' : `Copy Selected (${selected.size}) to Multibuy`}
+        </button>
         <button onClick={handleAccept} disabled={selected.size === 0 || loading} className={BTN_SM_PRIMARY}>
           {loading ? 'Saving…' : `Buy Selected (${selected.size}) → Add to Inventory`}
         </button>

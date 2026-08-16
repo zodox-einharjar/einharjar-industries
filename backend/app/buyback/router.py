@@ -7,7 +7,9 @@ from ..db import AsyncSessionLocal
 from ..doctrines.shortfall import aggregate_shortfalls
 from ..inventory.janice_parser import parse_janice_text
 from ..inventory.lots import save_lots
+from ..market.velocity import daily_velocity
 from ..models import Location, MarketOrder
+from ..sde import resolve_region_id
 
 router = APIRouter(prefix="/buyback", dependencies=[Depends(get_current_character)])
 
@@ -67,6 +69,8 @@ async def evaluate(body: EvaluateRequest):
             entry["doctrines"] |= acc["doctrines"]
 
         fee_frac = (loc.broker_fee_pct + loc.sales_tax_pct + loc.scc_surcharge_pct) / 100.0
+        region_id = resolve_region_id(loc.eve_id, loc.region_id)
+        history_cache: dict[tuple[int, int], list[dict]] = {}
 
         recommended = []
         unprofitable = []
@@ -87,12 +91,17 @@ async def evaluate(body: EvaluateRequest):
             profit_pct = (profit_per_unit / item["unit_price"] * 100) if item["unit_price"] > 0 else None
             total_profit = profit_per_unit * item["qty"]
 
+            v_daily = await daily_velocity(region_id, tid, history_cache) if region_id else 0.0
+            low_velocity = v_daily <= 0
+
             needed = needed_by_type.get(tid)
             row = {
                 "type_id": tid, "name": item["item_name"], "qty": item["qty"],
                 "unit_price": item["unit_price"], "staging_sell_price": sp,
                 "profit_per_unit": profit_per_unit, "profit_pct": profit_pct,
                 "total_profit": total_profit,
+                "velocity_daily": round(v_daily, 2), "low_velocity": low_velocity,
+                "days_to_sell": round(item["qty"] / v_daily, 1) if v_daily > 0 else None,
                 "needed": needed is not None,
                 "doctrines": (
                     [{"doctrine_name": dn, "fit_name": fn} for dn, fn in sorted(needed["doctrines"])]
