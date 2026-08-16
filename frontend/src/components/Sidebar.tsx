@@ -53,6 +53,7 @@ const NAV = [
     label: 'Market',
     items: [
       { label: 'Market Orders', href: '/market-orders' },
+      { label: 'Watchlist', href: '/market' },
       { label: 'Contracts', href: '/contracts' },
       { label: 'Inventory', href: '/inventory' },
       { label: 'History', href: '/pnl' },

@@ -3,6 +3,7 @@ from dataclasses import asdict, dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from ..market_watch.tracking import track_items
 from ..models import Doctrine, DoctrineFit, Fit, FitItem
 from .html_import import ParsedDoctrine, ParsedFit
 
@@ -88,6 +89,7 @@ async def build_and_apply_plan(
     duplicate_fit_names: list[str] = []
     plan_doctrines: list[DoctrinePlanEntry] = []
     processed_doctrine_names: set[str] = set()
+    touched_type_ids: set[int] = set()
 
     for pd in dedup_doctrines:
         name_key = pd.name.strip().lower()
@@ -149,6 +151,8 @@ async def build_and_apply_plan(
             fkey = pf.fit_name.strip().lower()
             kept_fit_name_keys.add(fkey)
             existing_fit = fits_by_name.get(fkey)
+            touched_type_ids.update(pf.items.keys())
+            touched_type_ids.add(pf.ship_type_id)
 
             if existing_fit:
                 changed = (
@@ -269,6 +273,7 @@ async def build_and_apply_plan(
     if dry_run:
         await session.rollback()
     else:
+        await track_items(session, touched_type_ids)
         await session.commit()
 
     summary = {

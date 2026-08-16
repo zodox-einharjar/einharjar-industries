@@ -276,6 +276,15 @@ class MarketOrder(Base):
     fetched_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
 
 
+class TrackedItem(Base):
+    __tablename__ = "tracked_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    type_id: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)  # "manual" | "doctrine"
+    added_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+
 class MarketListing(Base):
     __tablename__ = "market_listings"
 

@@ -12,6 +12,7 @@ from ..auth.deps import get_current_character
 from ..db import AsyncSessionLocal
 from ..esi.client import esi
 from ..market.poller import poll_location
+from ..market_watch.tracking import track_items
 from ..models import (
     Doctrine, DoctrineFit, Fit, FitItem, FreightRoute, InventoryLot, Location, MarketOrder,
 )
@@ -546,6 +547,7 @@ async def create_fit(body: FitCreate):
         await session.flush()
         for type_id, qty in parsed["items"].items():
             session.add(FitItem(fit_id=fit.id, type_id=type_id, quantity=qty))
+        await track_items(session, [*parsed["items"].keys(), parsed["ship_type_id"]])
         fit_id, fit_name, ship_type_id = fit.id, fit.name, fit.ship_type_id
         item_count = len(parsed["items"])
         await session.commit()
