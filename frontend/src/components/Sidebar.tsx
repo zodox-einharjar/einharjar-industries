@@ -40,6 +40,7 @@ const NAV = [
       { label: 'Doctrines', href: '/availability' },
       { label: 'Fits', href: '/fits' },
       { label: 'Items', href: '/items' },
+      { label: 'Import Recs', href: '/import-recommendations' },
     ],
   },
   {

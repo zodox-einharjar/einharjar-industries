@@ -4,9 +4,9 @@ from sqlalchemy import func, select
 
 from ..auth.deps import get_current_character
 from ..db import AsyncSessionLocal
-from ..esi.client import ESIError, esi
+from ..market.history import get_history
 from ..models import Location, MarketOrder, TrackedItem
-from ..sde import type_name, type_names
+from ..sde import resolve_region_id, type_name, type_names
 from .tracking import track_items
 
 router = APIRouter(prefix="/market-watch", dependencies=[Depends(get_current_character)])
@@ -113,22 +113,16 @@ async def item_detail(type_id: int, location_id: int | None = None):
         history: list[dict] = []
         velocity: list[dict] = []
         if location:
-            try:
-                rows = await esi.get(
-                    f"/markets/{location.region_id}/history/",
-                    params={"type_id": type_id},
-                )
-                rows = rows[-_HISTORY_DAYS:]
-                history = [
-                    {"date": r["date"], "average": r["average"], "highest": r["highest"], "lowest": r["lowest"]}
-                    for r in rows
-                ]
-                velocity = [
-                    {"date": r["date"], "volume": r["volume"], "order_count": r["order_count"]}
-                    for r in rows
-                ]
-            except ESIError:
-                pass
+            region_id = resolve_region_id(location.eve_id, location.region_id)
+            rows = (await get_history(region_id, type_id))[-_HISTORY_DAYS:] if region_id else []
+            history = [
+                {"date": r["date"], "average": r["average"], "highest": r["highest"], "lowest": r["lowest"]}
+                for r in rows
+            ]
+            velocity = [
+                {"date": r["date"], "volume": r["volume"], "order_count": r["order_count"]}
+                for r in rows
+            ]
 
         depth = {"buy": [], "sell": []}
         data_as_of = None

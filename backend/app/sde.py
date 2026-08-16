@@ -176,6 +176,16 @@ def region_id_for_system(solar_system_id: int) -> int | None:
     return row["regionID"] if row else None
 
 
+def resolve_region_id(eve_id: int, stored_region_id: int | None) -> int | None:
+    """A Location's stored region_id is sometimes actually a solar system ID
+    (structures resolved before a system_id was known). Re-derive the true
+    region from the station/system rather than trusting the stored value blindly."""
+    return (
+        region_id_for_station(eve_id)
+        or (region_id_for_system(stored_region_id) if stored_region_id and stored_region_id >= 30000000 else stored_region_id)
+    )
+
+
 def system_name_for_station(station_eve_id: int) -> str | None:
     row = get_sde().execute(
         """SELECT ms.solarSystemName

@@ -12,6 +12,7 @@ from .contracts.router import router as contracts_router
 from .doctrines.router import router as doctrines_router
 from .industry.router import router as industry_router
 from .industry_jobs.router import router as industry_jobs_router
+from .import_recommendations.router import router as import_recommendations_router
 from .inventory.router import router as inventory_router
 from .market_listings.router import router as market_listings_router
 from .market_watch.router import router as market_watch_router
@@ -43,6 +44,7 @@ app.include_router(contracts_router)
 app.include_router(doctrines_router)
 app.include_router(industry_jobs_router)
 app.include_router(industry_router)
+app.include_router(import_recommendations_router)
 app.include_router(inventory_router)
 app.include_router(market_listings_router)
 app.include_router(market_watch_router)

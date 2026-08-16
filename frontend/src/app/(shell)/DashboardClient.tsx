@@ -353,7 +353,7 @@ export function DashboardClient() {
         <div className="bg-surface border border-wire rounded p-4">
           <SectionHeader
             title="Items to source"
-            action={<Link href="/availability?below=1" className={LINK_SM}>Open in availability →</Link>}
+            action={<Link href="/import-recommendations" className={LINK_SM}>Open in import recs →</Link>}
           />
           <div className="space-y-0">
             {data.items_to_source.map(item => (
@@ -379,7 +379,7 @@ export function DashboardClient() {
             ))}
           </div>
           <div className="mt-3">
-            <Link href="/availability?below=1" className="text-[12px] text-accent hover:underline">
+            <Link href="/import-recommendations" className="text-[12px] text-accent hover:underline">
               View all shortfalls →
             </Link>
           </div>
