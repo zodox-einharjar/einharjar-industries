@@ -53,7 +53,7 @@ interface RecommendationsResponse {
 
 type SortKey =
   | 'name' | 'qty_to_buy' | 'jita_unit_cost' | 'freight_per_unit' | 'import_cost_per_unit'
-  | 'staging_sell_price' | 'profit_per_unit' | 'total_profit' | 'velocity_daily' | 'days_to_sell'
+  | 'staging_sell_price' | 'profit_per_unit' | 'profit_pct' | 'total_profit' | 'velocity_daily' | 'days_to_sell'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -84,6 +84,16 @@ function profitCls(n: number | null): string {
   return n > 0 ? 'text-eve-green' : n < 0 ? 'text-eve-red' : 'text-muted'
 }
 
+function profitPct(item: RecommendationItem): number | null {
+  return item.profit_per_unit != null && item.import_cost_per_unit != null && item.import_cost_per_unit > 0
+    ? item.profit_per_unit / item.import_cost_per_unit * 100
+    : null
+}
+
+function fmtPct(pct: number | null): string {
+  return pct != null ? `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : '—'
+}
+
 async function copyText(text: string): Promise<void> {
   if (navigator.clipboard && window.isSecureContext) {
     await navigator.clipboard.writeText(text)
@@ -111,6 +121,7 @@ function sortValue(item: RecommendationItem, key: SortKey): number | string {
     case 'import_cost_per_unit':  return item.import_cost_per_unit ?? -1
     case 'staging_sell_price':    return item.staging_sell_price ?? -1
     case 'profit_per_unit':       return item.profit_per_unit ?? -Infinity
+    case 'profit_pct':            return profitPct(item) ?? -Infinity
     case 'total_profit':          return item.total_profit ?? -Infinity
     case 'velocity_daily':        return item.velocity_daily
     case 'days_to_sell':          return item.days_to_sell ?? Infinity
@@ -151,6 +162,7 @@ function GroupCard({ group }: { group: RecommendationGroup }) {
   const [sortKey, setSortKey] = useState<SortKey>('total_profit')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  const [selected, setSelected] = useState<Set<number>>(new Set())
   const [copied, setCopied] = useState(false)
 
   function handleSort(key: SortKey) {
@@ -166,6 +178,21 @@ function GroupCard({ group }: { group: RecommendationGroup }) {
     })
   }
 
+  function toggleSelect(type_id: number) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(type_id) ? next.delete(type_id) : next.add(type_id)
+      return next
+    })
+  }
+
+  const buyable = group.items.filter(i => i.qty_to_buy > 0)
+  const allSelected = buyable.length > 0 && buyable.every(i => selected.has(i.type_id))
+
+  function toggleSelectAll() {
+    setSelected(allSelected ? new Set() : new Set(buyable.map(i => i.type_id)))
+  }
+
   const sorted = useMemo(() => {
     const list = [...group.items]
     list.sort((a, b) => {
@@ -178,8 +205,8 @@ function GroupCard({ group }: { group: RecommendationGroup }) {
   }, [group.items, sortKey, sortDir])
 
   async function copyList() {
-    const buyable = group.items.filter(i => i.qty_to_buy > 0)
-    await copyText(buildMultibuy(buyable.map(i => ({ name: i.name, qty: i.qty_to_buy }))))
+    const toCopy = selected.size > 0 ? buyable.filter(i => selected.has(i.type_id)) : buyable
+    await copyText(buildMultibuy(toCopy.map(i => ({ name: i.name, qty: i.qty_to_buy }))))
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -196,10 +223,10 @@ function GroupCard({ group }: { group: RecommendationGroup }) {
         </div>
         <button
           onClick={copyList}
-          disabled={!group.items.some(i => i.qty_to_buy > 0)}
+          disabled={buyable.length === 0}
           className="px-3 py-1 text-[12px] border border-wire text-muted rounded hover:text-secondary transition-colors disabled:opacity-40 disabled:pointer-events-none"
         >
-          {copied ? '✓ Copied' : 'Copy to Multibuy'}
+          {copied ? '✓ Copied' : selected.size > 0 ? `Copy Selected (${selected.size}) to Multibuy` : 'Copy All to Multibuy'}
         </button>
       </div>
 
@@ -207,6 +234,16 @@ function GroupCard({ group }: { group: RecommendationGroup }) {
         <table className="w-full text-[12px]">
           <thead className="bg-surface-hi border-b border-wire">
             <tr>
+              <th className={`${TH} w-8`}>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  disabled={buyable.length === 0}
+                  aria-label="Select all"
+                  className="align-middle"
+                />
+              </th>
               <th className={`${TH} text-left`}>Item</th>
               <SortTh label="Qty" sortKey="qty_to_buy" current={sortKey} dir={sortDir} onSort={handleSort} />
               <SortTh label="Jita/u" sortKey="jita_unit_cost" current={sortKey} dir={sortDir} onSort={handleSort} />
@@ -214,6 +251,7 @@ function GroupCard({ group }: { group: RecommendationGroup }) {
               <SortTh label="Import/u" sortKey="import_cost_per_unit" current={sortKey} dir={sortDir} onSort={handleSort} />
               <SortTh label="Staging" sortKey="staging_sell_price" current={sortKey} dir={sortDir} onSort={handleSort} />
               <SortTh label="Profit/u" sortKey="profit_per_unit" current={sortKey} dir={sortDir} onSort={handleSort} />
+              <SortTh label="Profit %/u" sortKey="profit_pct" current={sortKey} dir={sortDir} onSort={handleSort} />
               <SortTh label="Total profit" sortKey="total_profit" current={sortKey} dir={sortDir} onSort={handleSort} />
               <SortTh label="Vel/d" sortKey="velocity_daily" current={sortKey} dir={sortDir} onSort={handleSort} />
               <SortTh label="Days to sell" sortKey="days_to_sell" current={sortKey} dir={sortDir} onSort={handleSort} />
@@ -226,6 +264,17 @@ function GroupCard({ group }: { group: RecommendationGroup }) {
               return (
                 <Fragment key={item.type_id}>
                   <tr className={item.low_velocity ? 'opacity-50' : ''}>
+                    <td className="px-3 py-2">
+                      {item.qty_to_buy > 0 && (
+                        <input
+                          type="checkbox"
+                          checked={selected.has(item.type_id)}
+                          onChange={() => toggleSelect(item.type_id)}
+                          aria-label={`Select ${item.name}`}
+                          className="align-middle"
+                        />
+                      )}
+                    </td>
                     <td className={TD}>
                       <Link href={`/market/${item.type_id}`} className="text-primary hover:text-accent transition-colors">
                         {item.name}
@@ -243,6 +292,7 @@ function GroupCard({ group }: { group: RecommendationGroup }) {
                     <td className={`${TD} text-right font-mono text-muted`}>{iska(item.import_cost_per_unit)}</td>
                     <td className={`${TD} text-right font-mono text-muted`}>{iska(item.staging_sell_price)}</td>
                     <td className={`${TD} text-right font-mono ${profitCls(item.profit_per_unit)}`}>{iska(item.profit_per_unit)}</td>
+                    <td className={`${TD} text-right font-mono ${profitCls(item.profit_per_unit)}`}>{fmtPct(profitPct(item))}</td>
                     <td className={`${TD} text-right font-mono font-semibold ${profitCls(item.total_profit)}`}>{iska(item.total_profit)}</td>
                     <td className={`${TD} text-right font-mono text-muted`}>{item.velocity_daily.toLocaleString()}</td>
                     <td className={`${TD} text-right font-mono text-muted`}>{item.days_to_sell != null ? `${item.days_to_sell}d` : '—'}</td>
@@ -258,7 +308,7 @@ function GroupCard({ group }: { group: RecommendationGroup }) {
                   </tr>
                   {isExpanded && (
                     <tr className="bg-canvas">
-                      <td colSpan={11} className="px-4 py-2.5">
+                      <td colSpan={13} className="px-4 py-2.5">
                         <div className="space-y-1 text-[11px]">
                           <div className="text-muted">
                             Jita depth: {item.jita_qty_available.toLocaleString()} available
