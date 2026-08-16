@@ -178,11 +178,11 @@ export function PnlClient() {
               <div className="text-[11px] font-semibold tracking-[0.1em] text-faint uppercase mb-4">P&amp;L over time</div>
               <ResponsiveContainer width="100%" height={260}>
                 <ComposedChart data={data.daily} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--wire)" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                   <XAxis
                     dataKey="date"
                     tickFormatter={fmtDateShort}
-                    tick={{ fill: 'var(--muted)', fontSize: 10 }}
+                    tick={{ fill: 'var(--text-muted)', fontSize: 10 }}
                     axisLine={false}
                     tickLine={false}
                     interval="preserveStartEnd"
@@ -190,7 +190,7 @@ export function PnlClient() {
                   <YAxis
                     yAxisId="daily"
                     tickFormatter={v => iska(v)}
-                    tick={{ fill: 'var(--muted)', fontSize: 10 }}
+                    tick={{ fill: 'var(--text-muted)', fontSize: 10 }}
                     axisLine={false}
                     tickLine={false}
                     width={52}
@@ -205,7 +205,7 @@ export function PnlClient() {
                     width={52}
                   />
                   <Tooltip content={<ChartTooltip />} />
-                  <ReferenceLine yAxisId="daily" y={0} stroke="var(--wire)" />
+                  <ReferenceLine yAxisId="daily" y={0} stroke="var(--border)" />
                   <Bar
                     yAxisId="daily"
                     dataKey="profit"

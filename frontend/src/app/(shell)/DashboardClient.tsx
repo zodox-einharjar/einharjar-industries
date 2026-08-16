@@ -216,17 +216,17 @@ export function DashboardClient() {
                   <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--wire)" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
               <XAxis
                 dataKey="date"
                 tickFormatter={d => { const [,m,day] = d.split('-'); return `${parseInt(m)}/${parseInt(day)}` }}
-                tick={{ fill: 'var(--muted)', fontSize: 10 }}
+                tick={{ fill: 'var(--text-muted)', fontSize: 10 }}
                 axisLine={false} tickLine={false}
                 interval="preserveStartEnd"
               />
               <YAxis
                 tickFormatter={v => iska(v)}
-                tick={{ fill: 'var(--muted)', fontSize: 10 }}
+                tick={{ fill: 'var(--text-muted)', fontSize: 10 }}
                 axisLine={false} tickLine={false} width={48}
               />
               <Tooltip
