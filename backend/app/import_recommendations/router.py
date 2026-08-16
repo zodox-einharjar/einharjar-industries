@@ -233,6 +233,7 @@ async def import_recommendations(window_days: int = 14):
                     "staging_sell_price": staging_price,
                     "profit_per_unit": profit_per_unit,
                     "total_profit": total_profit,
+                    "total_m3": float(vol) * actual_qty,
                     "doctrines": [{"doctrine_name": dn, "fit_name": fn} for dn, fn in sorted(acc["doctrines"])],
                 })
 
@@ -244,7 +245,7 @@ async def import_recommendations(window_days: int = 14):
                     r["import_cost_per_unit"] * r["qty_to_buy"] for r in items_out if r["import_cost_per_unit"] is not None
                 ),
                 "total_profit": sum(r["total_profit"] for r in items_out if r["total_profit"] is not None),
-                "total_m3": sum(type_vols.get(r["type_id"], 0) * r["qty_to_buy"] for r in items_out),
+                "total_m3": sum(r["total_m3"] for r in items_out),
                 "items": items_out,
             })
 

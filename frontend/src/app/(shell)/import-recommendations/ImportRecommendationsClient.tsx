@@ -27,6 +27,7 @@ interface RecommendationItem {
   staging_sell_price: number | null
   profit_per_unit: number | null
   total_profit: number | null
+  total_m3: number
   doctrines: DoctrineRef[]
 }
 
@@ -338,11 +339,33 @@ function GroupCard({ group }: { group: RecommendationGroup }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+function niceMax(n: number): number {
+  if (n <= 0) return 0
+  const magnitude = 10 ** Math.floor(Math.log10(n))
+  return Math.ceil(n / magnitude) * magnitude
+}
+
+function filterGroup(group: RecommendationGroup, minProfit: number, minProfitPct: number): RecommendationGroup {
+  const items = group.items.filter(i =>
+    (minProfit <= 0 || (i.profit_per_unit != null && i.profit_per_unit >= minProfit)) &&
+    (minProfitPct <= 0 || ((profitPct(i) ?? -Infinity) >= minProfitPct))
+  )
+  return {
+    ...group,
+    items,
+    total_investment: items.reduce((sum, i) => sum + (i.import_cost_per_unit ?? 0) * i.qty_to_buy, 0),
+    total_profit: items.reduce((sum, i) => sum + (i.total_profit ?? 0), 0),
+    total_m3: items.reduce((sum, i) => sum + i.total_m3, 0),
+  }
+}
+
 export function ImportRecommendationsClient() {
   const [data, setData] = useState<RecommendationsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [windowDays, setWindowDays] = useState(14)
+  const [minProfit, setMinProfit] = useState(0)
+  const [minProfitPct, setMinProfitPct] = useState(0)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -354,6 +377,16 @@ export function ImportRecommendationsClient() {
   }, [windowDays])
 
   useEffect(() => { load() }, [load])
+
+  const allItems = useMemo(() => data?.groups.flatMap(g => g.items) ?? [], [data])
+  const maxProfit = useMemo(() => niceMax(Math.max(0, ...allItems.map(i => i.profit_per_unit ?? 0))), [allItems])
+  const maxProfitPct = useMemo(() => niceMax(Math.max(0, ...allItems.map(i => profitPct(i) ?? 0))), [allItems])
+
+  const filteredGroups = useMemo(
+    () => (data?.groups ?? []).map(g => filterGroup(g, minProfit, minProfitPct)).filter(g => g.items.length > 0),
+    [data, minProfit, minProfitPct]
+  )
+  const filtersActive = minProfit > 0 || minProfitPct > 0
 
   return (
     <div className="space-y-4">
@@ -375,6 +408,43 @@ export function ImportRecommendationsClient() {
         )}
       </div>
 
+      <div className="flex items-center gap-6 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-faint whitespace-nowrap">Min profit/u</span>
+          <input
+            type="range"
+            min={0}
+            max={maxProfit || 1}
+            step={Math.max(1, maxProfit / 200)}
+            value={Math.min(minProfit, maxProfit)}
+            onChange={e => setMinProfit(Number(e.target.value))}
+            className="accent-[color:var(--accent)] w-36"
+          />
+          <span className="text-[11px] text-muted font-mono w-16">{iska(minProfit)}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-faint whitespace-nowrap">Min profit %/u</span>
+          <input
+            type="range"
+            min={0}
+            max={maxProfitPct || 1}
+            step={Math.max(1, maxProfitPct / 200)}
+            value={Math.min(minProfitPct, maxProfitPct)}
+            onChange={e => setMinProfitPct(Number(e.target.value))}
+            className="accent-[color:var(--accent)] w-36"
+          />
+          <span className="text-[11px] text-muted font-mono w-14">{minProfitPct.toFixed(0)}%</span>
+        </div>
+        {filtersActive && (
+          <button
+            onClick={() => { setMinProfit(0); setMinProfitPct(0) }}
+            className="text-[11px] text-muted hover:text-accent transition-colors"
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
       {loading ? (
         <div className="h-40 bg-surface border border-wire rounded animate-pulse" />
       ) : error ? (
@@ -392,9 +462,13 @@ export function ImportRecommendationsClient() {
             <div className="bg-surface border border-wire rounded p-8 text-center text-muted text-[13px]">
               Nothing to import right now — all doctrine shortfalls are already covered, owned, or below the sell-through threshold.
             </div>
+          ) : filteredGroups.length === 0 ? (
+            <div className="bg-surface border border-wire rounded p-8 text-center text-muted text-[13px]">
+              No items match the current filters.
+            </div>
           ) : (
             <div className="space-y-4">
-              {data.groups.map(g => <GroupCard key={g.location_id} group={g} />)}
+              {filteredGroups.map(g => <GroupCard key={g.location_id} group={g} />)}
             </div>
           )}
         </>
