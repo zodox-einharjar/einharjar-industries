@@ -22,6 +22,11 @@ from pathlib import Path
 import httpx
 import yaml
 
+try:
+    _YAML_LOADER = yaml.CSafeLoader  # libyaml-backed — ~7x faster than SafeLoader
+except AttributeError:
+    _YAML_LOADER = yaml.SafeLoader
+
 LATEST_URL = "https://developers.eveonline.com/static-data/tranquility/latest.jsonl"
 ZIP_PATTERN = "https://developers.eveonline.com/static-data/tranquility/eve-online-static-data-{build}-yaml.zip"
 
@@ -87,7 +92,7 @@ def _en(obj) -> str:
 
 def _load(zf: zipfile.ZipFile, name: str) -> dict:
     with zf.open(name) as f:
-        return yaml.safe_load(f)
+        return yaml.load(f, Loader=_YAML_LOADER)
 
 
 def _station_name(s: dict, sys_name: str, corp_names: dict, op_names: dict) -> str:
