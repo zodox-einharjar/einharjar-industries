@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface OreLine {
+interface ItemLine {
   type_id: number
   name: string
+  mode: 'reprocess' | 'direct'
   qty: number
   unit_price: number
   line_cost: number
@@ -28,26 +29,26 @@ interface UnmetMineral {
   shortfall: number
 }
 
-interface UnpricedOre {
+interface UnpricedItem {
   type_id: number
   name: string
   qty: number
 }
 
-interface UnknownOre {
+interface UnknownItem {
   item_name: string
   qty: number
 }
 
 interface OptimizeResponse {
-  ore_to_buy: OreLine[]
+  items_to_buy: ItemLine[]
   total_cost: number
   minerals: MineralLine[]
   unmet_minerals: UnmetMineral[]
   efficiency_pct: number
-  ore_unpriced: UnpricedOre[]
-  ore_unknown: UnknownOre[]
-  ore_parse_errors: string[]
+  unpriced: UnpricedItem[]
+  unknown: UnknownItem[]
+  parse_errors: string[]
   mineral_unresolved: string[]
 }
 
@@ -83,11 +84,26 @@ function buildMultibuy(items: { name: string; qty: number }[]): string {
   return items.map(i => `${i.name} x${i.qty}`).join('\n')
 }
 
+async function errorMessage(res: Response, fallback: string): Promise<string> {
+  // The backend normally returns JSON, but a proxy/server error (502, an
+  // unhandled exception, etc.) can return plain text or HTML instead —
+  // res.json() would throw a confusing "Unexpected token" error in that case.
+  const raw = await res.text()
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed.detail || fallback
+  } catch {
+    return raw.trim() ? `${fallback} (server said: ${raw.slice(0, 200)})` : fallback
+  }
+}
+
 const PRICE_TYPES = [
   { value: 'buy'   as const, label: 'Buy price'  },
   { value: 'sell'  as const, label: 'Sell price' },
   { value: 'split' as const, label: 'Split'      },
 ]
+
+const MODE_LABEL: Record<ItemLine['mode'], string> = { reprocess: 'Reprocess', direct: 'Direct buy' }
 
 const TD = 'px-3 py-2 align-middle'
 const TH = 'px-3 py-2 text-[10px] text-muted font-semibold uppercase tracking-wider whitespace-nowrap'
@@ -99,7 +115,7 @@ const BTN_SM_PRIMARY = 'px-3 py-1 text-[12px] border border-accent text-accent h
 export function ReprocessingClient() {
   const [step, setStep] = useState<'form' | 'results'>('form')
   const [mineralsText, setMineralsText] = useState('')
-  const [oreText, setOreText] = useState('')
+  const [supplyText, setSupplyText] = useState('')
   const [priceType, setPriceType] = useState<'buy' | 'sell' | 'split'>('sell')
   const [efficiency, setEfficiency] = useState(90.63)
   const [result, setResult] = useState<OptimizeResponse | null>(null)
@@ -112,11 +128,12 @@ export function ReprocessingClient() {
     fetch('/api/settings')
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.reprocessing_efficiency_pct) setEfficiency(d.reprocessing_efficiency_pct) })
+      .catch(() => {})
     mineralsRef.current?.focus()
   }, [])
 
   async function handleOptimize() {
-    if (!mineralsText.trim() || !oreText.trim()) return
+    if (!mineralsText.trim() || !supplyText.trim()) return
     setLoading(true); setError(null)
     try {
       const res = await fetch('/api/reprocessing/optimize', {
@@ -124,12 +141,12 @@ export function ReprocessingClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           minerals_text: mineralsText.trim(),
-          ore_text: oreText.trim(),
+          supply_text: supplyText.trim(),
           price_type: priceType,
           efficiency_pct: efficiency,
         }),
       })
-      if (!res.ok) throw new Error((await res.json()).detail || 'Optimization failed')
+      if (!res.ok) throw new Error(await errorMessage(res, 'Optimization failed'))
       setResult(await res.json())
       setStep('results')
     } catch (e: any) {
@@ -140,8 +157,8 @@ export function ReprocessingClient() {
   }
 
   async function copyList() {
-    if (!result || result.ore_to_buy.length === 0) return
-    await copyText(buildMultibuy(result.ore_to_buy.map(o => ({ name: o.name, qty: o.qty }))))
+    if (!result || result.items_to_buy.length === 0) return
+    await copyText(buildMultibuy(result.items_to_buy.map(o => ({ name: o.name, qty: o.qty }))))
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -170,14 +187,16 @@ export function ReprocessingClient() {
 
       <div>
         <label className="block text-[11px] text-muted mb-1.5">
-          Available ore — Janice paste (select all rows, copy)<br />
+          Available ore and/or minerals — Janice paste (select all rows, copy). Include raw minerals
+          here too if you can buy them directly — the optimizer will compare buying ore-and-reprocess
+          against buying the mineral outright (or a mix of both).<br />
           Expected columns: <span className="text-faint font-mono">Name · Qty · Volume · Buy price · Sell price</span>
         </label>
         <textarea
-          value={oreText}
-          onChange={e => setOreText(e.target.value)}
+          value={supplyText}
+          onChange={e => setSupplyText(e.target.value)}
           rows={10}
-          placeholder={"Compressed Veldspar\t1000000\t0.00\t1.50\t1.80"}
+          placeholder={"Compressed Veldspar\t1000000\t0.00\t1.50\t1.80\nTritanium\t5000000\t0.01\t3.00\t3.20"}
           className="w-full bg-canvas border border-wire rounded px-3 py-2 text-[12px] font-mono text-primary placeholder:text-faint focus:outline-none focus:border-accent resize-none"
         />
       </div>
@@ -213,7 +232,7 @@ export function ReprocessingClient() {
       </div>
 
       <div className="flex justify-end">
-        <button onClick={handleOptimize} disabled={!mineralsText.trim() || !oreText.trim() || loading} className={BTN_SM_PRIMARY}>
+        <button onClick={handleOptimize} disabled={!mineralsText.trim() || !supplyText.trim() || loading} className={BTN_SM_PRIMARY}>
           {loading ? 'Solving…' : 'Find cheapest combination'}
         </button>
       </div>
@@ -223,15 +242,15 @@ export function ReprocessingClient() {
   // step === 'results'
   if (!result) return null
 
-  const hasErrors = result.ore_parse_errors.length > 0 || result.ore_unknown.length > 0 ||
-    result.ore_unpriced.length > 0 || result.mineral_unresolved.length > 0
+  const hasErrors = result.parse_errors.length > 0 || result.unknown.length > 0 ||
+    result.unpriced.length > 0 || result.mineral_unresolved.length > 0
 
   return (
     <div className="space-y-4">
       {error && <p className="text-[12px] text-eve-red">{error}</p>}
       <div className="flex items-center justify-between">
         <div className="text-[13px] text-primary">
-          {result.ore_to_buy.length} ore type{result.ore_to_buy.length !== 1 ? 's' : ''} ·{' '}
+          {result.items_to_buy.length} item{result.items_to_buy.length !== 1 ? 's' : ''} to buy ·{' '}
           <span className="text-eve-green">{iska(result.total_cost)} ISK total</span> ·{' '}
           <span className="text-muted">{result.efficiency_pct.toFixed(2)}% efficiency</span>
           {result.unmet_minerals.length > 0 && (
@@ -245,7 +264,7 @@ export function ReprocessingClient() {
         <div className="bg-eve-red/10 border border-eve-red/30 rounded p-3 text-[12px] text-eve-red space-y-1">
           {result.unmet_minerals.map(m => (
             <div key={m.type_id}>
-              <strong>{m.name}</strong>: short by {m.shortfall.toLocaleString()} — the pasted ore
+              <strong>{m.name}</strong>: short by {m.shortfall.toLocaleString()} — the pasted list
               can't produce more than {m.qty_produced.toLocaleString()} of the {m.qty_needed.toLocaleString()} needed.
             </div>
           ))}
@@ -256,28 +275,30 @@ export function ReprocessingClient() {
         <table className="w-full text-[12px]">
           <thead className="bg-surface-hi border-b border-wire">
             <tr>
-              <th className={`${TH} text-left`}>Ore to buy</th>
+              <th className={`${TH} text-left`}>Item to buy</th>
+              <th className={`${TH} text-left`}>Method</th>
               <th className={`${TH} text-right`}>Qty</th>
               <th className={`${TH} text-right`}>Unit price</th>
               <th className={`${TH} text-right`}>Line cost</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-wire">
-            {result.ore_to_buy.length === 0 ? (
-              <tr><td colSpan={4} className="px-3 py-6 text-center text-muted">Nothing to buy</td></tr>
-            ) : result.ore_to_buy.map(o => (
-              <tr key={o.type_id}>
+            {result.items_to_buy.length === 0 ? (
+              <tr><td colSpan={5} className="px-3 py-6 text-center text-muted">Nothing to buy</td></tr>
+            ) : result.items_to_buy.map(o => (
+              <tr key={`${o.type_id}-${o.mode}`}>
                 <td className={`${TD} text-primary`}>{o.name}</td>
+                <td className={`${TD} text-muted`}>{MODE_LABEL[o.mode]}</td>
                 <td className={`${TD} text-right font-mono text-secondary`}>{o.qty.toLocaleString()}</td>
                 <td className={`${TD} text-right font-mono text-muted`}>{iska(o.unit_price)}</td>
                 <td className={`${TD} text-right font-mono font-semibold text-primary`}>{iska(o.line_cost)}</td>
               </tr>
             ))}
           </tbody>
-          {result.ore_to_buy.length > 0 && (
+          {result.items_to_buy.length > 0 && (
             <tfoot className="border-t border-wire">
               <tr>
-                <td colSpan={3} className={`${TD} text-right text-muted`}>Total</td>
+                <td colSpan={4} className={`${TD} text-right text-muted`}>Total</td>
                 <td className={`${TD} text-right font-mono font-semibold text-eve-green`}>{iska(result.total_cost)}</td>
               </tr>
             </tfoot>
@@ -321,11 +342,11 @@ export function ReprocessingClient() {
               </div>
             </details>
           )}
-          {result.ore_unknown.length > 0 && (
+          {result.unknown.length > 0 && (
             <details className="text-[12px]">
-              <summary className="cursor-pointer text-eve-red hover:text-secondary">{result.ore_unknown.length} unknown ore item{result.ore_unknown.length !== 1 ? 's' : ''}</summary>
+              <summary className="cursor-pointer text-eve-red hover:text-secondary">{result.unknown.length} unknown item{result.unknown.length !== 1 ? 's' : ''}</summary>
               <div className="mt-2 space-y-0.5 pl-3">
-                {result.ore_unknown.map((item, i) => (
+                {result.unknown.map((item, i) => (
                   <div key={i} className="flex items-center gap-3 text-faint">
                     <span className="flex-1 truncate">{item.item_name}</span>
                     <span className="font-mono">×{item.qty.toLocaleString()}</span>
@@ -334,11 +355,11 @@ export function ReprocessingClient() {
               </div>
             </details>
           )}
-          {result.ore_unpriced.length > 0 && (
+          {result.unpriced.length > 0 && (
             <details className="text-[12px]">
-              <summary className="cursor-pointer text-muted hover:text-secondary">{result.ore_unpriced.length} ore with no price</summary>
+              <summary className="cursor-pointer text-muted hover:text-secondary">{result.unpriced.length} item{result.unpriced.length !== 1 ? 's' : ''} with no price</summary>
               <div className="mt-2 space-y-0.5 pl-3">
-                {result.ore_unpriced.map((item, i) => (
+                {result.unpriced.map((item, i) => (
                   <div key={i} className="flex items-center gap-3 text-faint">
                     <span className="flex-1 truncate">{item.name}</span>
                     <span className="font-mono">×{item.qty.toLocaleString()}</span>
@@ -347,16 +368,16 @@ export function ReprocessingClient() {
               </div>
             </details>
           )}
-          {result.ore_parse_errors.length > 0 && (
+          {result.parse_errors.length > 0 && (
             <div className="space-y-0.5">
-              {result.ore_parse_errors.map((e, i) => <p key={i} className="text-[11px] text-eve-amber">{e}</p>)}
+              {result.parse_errors.map((e, i) => <p key={i} className="text-[11px] text-eve-amber">{e}</p>)}
             </div>
           )}
         </div>
       )}
 
       <div className="flex justify-end gap-2">
-        <button onClick={copyList} disabled={result.ore_to_buy.length === 0} className={BTN_SM}>
+        <button onClick={copyList} disabled={result.items_to_buy.length === 0} className={BTN_SM}>
           {copied ? '✓ Copied' : 'Copy to Multibuy'}
         </button>
       </div>

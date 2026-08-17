@@ -25,6 +25,14 @@ import yaml
 LATEST_URL = "https://developers.eveonline.com/static-data/tranquility/latest.jsonl"
 ZIP_PATTERN = "https://developers.eveonline.com/static-data/tranquility/eve-online-static-data-{build}-yaml.zip"
 
+# Bump whenever _SCHEMA (or what convert() populates) changes shape. Stored as
+# the sqlite file's own PRAGMA user_version, independent of the CCP build
+# number — a stale schema must force a rebuild even if the CCP data itself
+# hasn't changed since data/sde_build.txt was last written (that file tracks
+# CCP freshness, not our schema, and isn't guaranteed to reflect what's
+# actually baked into a given machine's untracked *.sqlite file).
+_SCHEMA_VERSION = 2
+
 _ROMAN = {
     1: "I", 2: "II", 3: "III", 4: "IV", 5: "V",
     6: "VI", 7: "VII", 8: "VIII", 9: "IX", 10: "X",
@@ -130,6 +138,7 @@ def convert(zip_data: bytes, out: Path) -> None:
 
     db = sqlite3.connect(tmp)
     db.executescript(_SCHEMA)
+    db.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
     db.executemany(
         "INSERT OR IGNORE INTO invTypes VALUES (?,?,?,?,?,?,?)",
@@ -196,20 +205,35 @@ def convert(zip_data: bytes, out: Path) -> None:
     print(f"  Written to {out}", flush=True)
 
 
+def _installed_schema_version(sde_path: Path) -> int | None:
+    if not sde_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(sde_path)
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        conn.close()
+        return version
+    except sqlite3.Error:
+        return None
+
+
 def main() -> None:
     sde_path = Path(os.getenv("SDE_PATH", "data/sqlite-latest.sqlite"))
     build_path = sde_path.with_name("sde_build.txt")
 
     stored = build_path.read_text().strip() if build_path.exists() else None
+    schema_current = _installed_schema_version(sde_path) == _SCHEMA_VERSION
 
     print("Checking CCP SDE version...", flush=True)
     with httpx.Client(follow_redirects=True) as client:
         current = _current_build(client)
         print(f"  Latest build: {current}", flush=True)
 
-        if stored == current and sde_path.exists():
+        if stored == current and sde_path.exists() and schema_current:
             print("Already up to date.")
             return
+        if stored == current and sde_path.exists() and not schema_current:
+            print("  Build unchanged, but the local schema is outdated — rebuilding.", flush=True)
 
         url = ZIP_PATTERN.format(build=current)
         print(f"Downloading {url} ...", flush=True)
