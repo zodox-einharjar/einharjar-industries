@@ -13,6 +13,7 @@ from ..models import (
     LotReservation, MarketOrder, ProjectJob, ProjectMaterial, ProjectOutput,
 )
 from ..sde import search_types, type_id_by_name, type_names
+from .job_matching import relink_project_jobs
 
 router = APIRouter(prefix="/industry", dependencies=[Depends(get_current_character)])
 
@@ -116,7 +117,7 @@ async def _get_project(session, project_id: int) -> IndustryProject:
         .options(
             selectinload(IndustryProject.materials).selectinload(ProjectMaterial.reservations),
             selectinload(IndustryProject.outputs),
-            selectinload(IndustryProject.jobs),
+            selectinload(IndustryProject.jobs).selectinload(ProjectJob.linked_job),
             selectinload(IndustryProject.output_location),
         )
         .where(IndustryProject.id == project_id)
@@ -124,6 +125,12 @@ async def _get_project(session, project_id: int) -> IndustryProject:
     if not p:
         raise HTTPException(404, "Project not found")
     return p
+
+
+def _effective_job_cost(job: ProjectJob) -> Decimal:
+    if job.linked_job and job.linked_job.cost is not None:
+        return job.linked_job.cost
+    return job.job_cost
 
 
 async def _get_character_id(session) -> int:
@@ -267,16 +274,26 @@ async def get_project(project_id: int):
         jobs_by_category = {cat: [] for cat in VALID_CATEGORIES}
         for job in sorted(p.jobs, key=lambda j: j.sort_order):
             if job.category in jobs_by_category:
+                linked = job.linked_job
                 jobs_by_category[job.category].append({
                     "id": job.id,
                     "name": job.name,
                     "runs": job.runs,
                     "days": job.days,
-                    "job_cost": float(job.job_cost),
-                    "is_done": job.is_done,
+                    "job_cost": float(_effective_job_cost(job)),
+                    "manual_job_cost": float(job.job_cost),
+                    "is_done": bool(linked and linked.status == "delivered") or job.is_done,
+                    "linked_job": {
+                        "id": linked.id,
+                        "job_id": linked.job_id,
+                        "status": linked.status,
+                        "cost": float(linked.cost) if linked.cost is not None else None,
+                        "runs": linked.runs,
+                        "end_date": linked.end_date.isoformat(),
+                    } if linked else None,
                 })
 
-        total_runs_cost = sum(float(j.job_cost) for j in p.jobs)
+        total_runs_cost = sum(float(_effective_job_cost(j)) for j in p.jobs)
         total_fixed_cost = float(p.invention_cost + p.blueprint_cost + p.extra_cost)
         total_cost = total_runs_cost + total_fixed_cost
 
@@ -497,7 +514,7 @@ async def complete_project(project_id: int):
             await session.delete(res)
 
         # Total project cost
-        run_cost = sum(j.job_cost for j in p.jobs)
+        run_cost = sum(_effective_job_cost(j) for j in p.jobs)
         total_cost = (
             material_cost
             + p.invention_cost
@@ -868,7 +885,29 @@ async def paste_jobs(project_id: int, body: JobPaste):
 
         await session.commit()
 
+    async with AsyncSessionLocal() as session:
+        await relink_project_jobs(session, project_ids=[project_id])
+
     return {"ok": True, "imported": len(parsed)}
+
+
+@router.post("/{project_id}/jobs/relink")
+async def relink_jobs(project_id: int):
+    async with AsyncSessionLocal() as session:
+        stats = await relink_project_jobs(session, project_ids=[project_id])
+    return {"ok": True, **stats}
+
+
+@router.post("/{project_id}/jobs/{job_id}/unlink")
+async def unlink_job(project_id: int, job_id: int):
+    async with AsyncSessionLocal() as session:
+        p = await _get_project(session, project_id)
+        job = next((j for j in p.jobs if j.id == job_id), None)
+        if not job:
+            raise HTTPException(404, "Job not found")
+        job.industry_job_id = None
+        await session.commit()
+    return {"ok": True}
 
 
 @router.patch("/{project_id}/jobs/{job_id}")

@@ -34,4 +34,6 @@ _COLUMN_MIGRATIONS = [
     "ALTER TABLE inventory_lots DROP CONSTRAINT IF EXISTS inventory_lots_location_id_fkey",
     "ALTER TABLE inventory_lots ADD CONSTRAINT inventory_lots_location_id_fkey FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS discord_notified BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE project_jobs ADD COLUMN IF NOT EXISTS industry_job_id INTEGER REFERENCES industry_jobs(id) ON DELETE SET NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_project_jobs_industry_job_id ON project_jobs(industry_job_id) WHERE industry_job_id IS NOT NULL",
 ]

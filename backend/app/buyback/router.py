@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from ..auth.deps import get_current_character
 from ..db import AsyncSessionLocal
 from ..doctrines.shortfall import aggregate_shortfalls
+from ..industry.shortfall import aggregate_project_needs
 from ..inventory.janice_parser import parse_janice_text
 from ..inventory.lots import save_lots
 from ..market.velocity import daily_velocity
@@ -59,14 +60,21 @@ async def evaluate(body: EvaluateRequest):
         # Informational/priority flag only — not location-scoped, since the item is
         # already in hand regardless of where the shortfall happens to be.
         shortfalls = await aggregate_shortfalls(session)
+        project_needs = await aggregate_project_needs(session)
         target_type_ids = set(type_ids)
         needed_by_type: dict[int, dict] = {}
         for (_staging_id, tid), acc in shortfalls.items():
             if tid not in target_type_ids:
                 continue
-            entry = needed_by_type.setdefault(tid, {"qty_shortfall": 0, "doctrines": set()})
+            entry = needed_by_type.setdefault(tid, {"qty_shortfall": 0, "doctrines": set(), "projects": set()})
             entry["qty_shortfall"] += acc["qty_shortfall"]
             entry["doctrines"] |= acc["doctrines"]
+        for tid, acc in project_needs.items():
+            if tid not in target_type_ids:
+                continue
+            entry = needed_by_type.setdefault(tid, {"qty_shortfall": 0, "doctrines": set(), "projects": set()})
+            entry["qty_shortfall"] += acc["qty_shortfall"]
+            entry["projects"] |= acc["projects"]
 
         fee_frac = (loc.broker_fee_pct + loc.sales_tax_pct + loc.scc_surcharge_pct) / 100.0
         region_id = resolve_region_id(loc.eve_id, loc.region_id)
@@ -107,6 +115,7 @@ async def evaluate(body: EvaluateRequest):
                     [{"doctrine_name": dn, "fit_name": fn} for dn, fn in sorted(needed["doctrines"])]
                     if needed else []
                 ),
+                "projects": sorted(needed["projects"]) if needed else [],
             }
 
             if profit_per_unit > 0:

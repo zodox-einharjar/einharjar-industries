@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from ..auth.tokens import TokenExpiredError, get_valid_token
 from ..db import AsyncSessionLocal
 from ..esi.client import ESIError, esi
+from ..industry.job_matching import relink_project_jobs, unlink_stale_project_jobs
 from ..models import AppSetting, Character, IndustryJob
 
 logger = logging.getLogger(__name__)
@@ -176,5 +177,9 @@ async def poll_industry_jobs() -> dict:
             stats = await _poll_corp_jobs(char.id)
             totals["count"] += stats["count"]
             polled_corps.add(char.corporation_id)
+
+    async with AsyncSessionLocal() as session:
+        await unlink_stale_project_jobs(session)
+        await relink_project_jobs(session)
 
     return totals

@@ -28,6 +28,7 @@ interface RecommendedItem {
   days_to_sell: number | null
   needed: boolean
   doctrines: DoctrineRef[]
+  projects: string[]
 }
 
 interface UnpricedItem {
@@ -447,7 +448,15 @@ export function BuybackClient() {
                   <td className={TD}>
                     <span className="text-primary">{item.name}</span>
                     {item.needed && (
-                      <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide border border-accent text-accent">needed</span>
+                      <span
+                        className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide border border-accent text-accent"
+                        title={[
+                          ...item.doctrines.map(d => `Doctrine: ${d.doctrine_name} / ${d.fit_name}`),
+                          ...item.projects.map(p => `Project: ${p}`),
+                        ].join('\n')}
+                      >
+                        needed
+                      </span>
                     )}
                     {item.low_velocity && (
                       <span className="ml-1.5 text-[10px] text-faint uppercase">no sales data</span>

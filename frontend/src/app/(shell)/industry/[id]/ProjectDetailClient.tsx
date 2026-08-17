@@ -24,13 +24,24 @@ interface Output {
   jita_sell: number | null
 }
 
+interface LinkedJob {
+  id: number
+  job_id: number
+  status: string
+  cost: number | null
+  runs: number
+  end_date: string
+}
+
 interface Job {
   id: number
   name: string
   runs: number
   days: number
   job_cost: number
+  manual_job_cost: number
   is_done: boolean
+  linked_job: LinkedJob | null
 }
 
 interface Project {
@@ -625,6 +636,14 @@ function JobsTab({
   const currentJobs = project.jobs_by_category[displayCat] ?? []
   const catTotalCost = currentJobs.reduce((s, j) => s + j.job_cost, 0)
 
+  const [relinking, setRelinking] = useState(false)
+  async function relink() {
+    setRelinking(true)
+    await fetch(`/api/industry/${project.id}/jobs/relink`, { method: 'POST' })
+    setRelinking(false)
+    onRefresh()
+  }
+
   return (
     <div className="space-y-4">
       {/* Summary */}
@@ -641,6 +660,11 @@ function JobsTab({
             </span>
             {doneCost > 0 && <span className="text-faint ml-1">({isk(doneCost)})</span>}
           </span>
+        )}
+        {allJobs.length > 0 && (
+          <button onClick={relink} disabled={relinking} className="text-[12px] text-accent hover:underline disabled:opacity-50">
+            {relinking ? 'Checking…' : 'Re-check links'}
+          </button>
         )}
       </div>
 
@@ -822,9 +846,16 @@ function InlinePaste({
 
 // ── Job row with done toggle + inline cost edit ────────────────────────────────
 
+const _LINKED_STATUS_COLOR: Record<string, string> = {
+  active: 'border-accent text-accent',
+  paused: 'border-yellow-500/50 text-yellow-400',
+  ready: 'border-green-500/50 text-green-400',
+  delivered: 'border-green-500/50 text-green-400',
+}
+
 function JobRow({ job, projectId, onRefresh }: { job: Job; projectId: number; onRefresh: () => void }) {
   const [editing, setEditing] = useState(false)
-  const [costVal, setCostVal] = useState(String(job.job_cost))
+  const [costVal, setCostVal] = useState(String(job.manual_job_cost))
   const inputRef = useRef<HTMLInputElement>(null)
 
   async function toggleDone() {
@@ -848,6 +879,11 @@ function JobRow({ job, projectId, onRefresh }: { job: Job; projectId: number; on
     onRefresh()
   }
 
+  async function unlink() {
+    await fetch(`/api/industry/${projectId}/jobs/${job.id}/unlink`, { method: 'POST' })
+    onRefresh()
+  }
+
   return (
     <tr className={`border-b border-wire last:border-0 ${job.is_done ? 'opacity-50' : ''}`}>
       <td className="px-4 py-2">
@@ -856,6 +892,20 @@ function JobRow({ job, projectId, onRefresh }: { job: Job; projectId: number; on
       </td>
       <td className={`px-4 py-2 ${job.is_done ? 'line-through text-muted' : 'text-primary'}`}>
         {job.name}
+        {job.linked_job && (
+          <span
+            className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide border ${_LINKED_STATUS_COLOR[job.linked_job.status] ?? 'border-wire text-muted'}`}
+            title={`Linked to real job #${job.linked_job.job_id} (${job.linked_job.status})`}
+          >
+            {job.linked_job.status}
+          </span>
+        )}
+        {job.linked_job && (
+          <button onClick={unlink} title="Unlink from real job"
+                  className="ml-1 text-faint hover:text-red-400 text-[11px] align-middle">
+            ✕
+          </button>
+        )}
       </td>
       <td className="px-4 py-2 text-right tabular-nums text-muted">{job.runs}</td>
       <td className="px-4 py-2 text-right tabular-nums text-muted">{job.days.toFixed(2)}</td>
@@ -871,8 +921,9 @@ function JobRow({ job, projectId, onRefresh }: { job: Job; projectId: number; on
             className="w-36 bg-canvas border border-accent rounded px-2 py-0.5 text-[12px] text-right font-mono focus:outline-none"
           />
         ) : (
-          <button onClick={() => { setCostVal(String(job.job_cost)); setEditing(true) }}
-                  className="tabular-nums hover:text-accent transition-colors" title="Click to edit">
+          <button onClick={() => { setCostVal(String(job.manual_job_cost)); setEditing(true) }}
+                  className="tabular-nums hover:text-accent transition-colors"
+                  title={job.linked_job ? `Real cost. Click to edit manual estimate (${isk(job.manual_job_cost)})` : 'Click to edit'}>
             {isk(job.job_cost)}
           </button>
         )}

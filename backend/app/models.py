@@ -238,8 +238,12 @@ class ProjectJob(Base):
     job_cost: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     is_done: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    industry_job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("industry_jobs.id", ondelete="SET NULL"), nullable=True
+    )
 
     project: Mapped["IndustryProject"] = relationship(back_populates="jobs")
+    linked_job: Mapped["IndustryJob | None"] = relationship(foreign_keys=[industry_job_id])
 
 
 class LotReservation(Base):
