@@ -114,6 +114,35 @@ def type_volumes(type_ids: list[int]) -> dict[int, float]:
     return result
 
 
+def reprocessing_materials(type_ids: list[int]) -> dict[int, list[dict]]:
+    """Reprocessing yield per portionSize units, from the SDE's typeMaterials
+    table. Returns {type_id: [{"material_type_id": int, "quantity": int}, ...]}."""
+    if not type_ids:
+        return {}
+    placeholders = ",".join("?" * len(type_ids))
+    rows = get_sde().execute(
+        f"""SELECT typeID, materialTypeID, quantity FROM typeMaterials
+            WHERE typeID IN ({placeholders})""",
+        type_ids,
+    ).fetchall()
+    result: dict[int, list[dict]] = {}
+    for row in rows:
+        result.setdefault(row["typeID"], []).append(
+            {"material_type_id": row["materialTypeID"], "quantity": row["quantity"]}
+        )
+    return result
+
+
+def portion_sizes(type_ids: list[int]) -> dict[int, int]:
+    if not type_ids:
+        return {}
+    placeholders = ",".join("?" * len(type_ids))
+    rows = get_sde().execute(
+        f"SELECT typeID, portionSize FROM invTypes WHERE typeID IN ({placeholders})", type_ids
+    ).fetchall()
+    return {row["typeID"]: row["portionSize"] for row in rows if row["portionSize"]}
+
+
 def station_name(station_id: int) -> str | None:
     row = get_sde().execute(
         "SELECT stationName FROM staStations WHERE stationID = ?", (station_id,)

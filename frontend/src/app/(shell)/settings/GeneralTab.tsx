@@ -44,6 +44,7 @@ type SdeCheckResult = {
 
 export function GeneralTab() {
   const [interval, setIntervalVal]   = useState<number>(5)
+  const [efficiency, setEfficiency]  = useState<number>(90.63)
   const [esiExpires, setEsiExpires]  = useState<string | null>(null)
   const [loading, setLoading]        = useState(true)
   const [saving, setSaving]          = useState(false)
@@ -67,6 +68,7 @@ export function GeneralTab() {
       if (!settingsRes.ok) throw new Error()
       const data = await settingsRes.json()
       setIntervalVal(data.poll_interval_minutes ?? 5)
+      setEfficiency(data.reprocessing_efficiency_pct ?? 90.63)
       setEsiExpires(data.orders_esi_expires ?? null)
       if (sdeRes.ok) {
         setSdeStatus(await sdeRes.json())
@@ -84,7 +86,7 @@ export function GeneralTab() {
       const r = await fetch('/api/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ poll_interval_minutes: interval }),
+        body: JSON.stringify({ poll_interval_minutes: interval, reprocessing_efficiency_pct: efficiency }),
       })
       if (!r.ok) throw new Error()
       setSaved(true)
@@ -156,6 +158,28 @@ export function GeneralTab() {
           <p className="text-[11px] text-faint">
             ESI caches character orders server-side for up to 30 minutes. New orders placed in EVE
             won&apos;t appear in a sync until after the cache expires, regardless of poll interval.
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">Reprocessing</span>
+        <div className="mt-3 rounded border border-wire p-4 space-y-3">
+          <div className="flex items-center gap-4">
+            <label className="text-[13px] text-secondary w-40 flex-shrink-0">Default efficiency</label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number" step="0.01" min="0" max="100"
+                value={efficiency}
+                onChange={e => setEfficiency(Number(e.target.value))}
+                className="w-24 bg-surface border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
+              />
+              <span className="text-[13px] text-muted">%</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-faint">
+            Used by the Reprocessing page to estimate mineral yield from ore. Match this to your
+            station/structure + rig + skill bonuses (e.g. a fully-bonused Rorqual/Athanor is ~90.63%).
           </p>
         </div>
       </div>

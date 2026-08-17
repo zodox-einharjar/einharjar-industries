@@ -17,6 +17,7 @@ from .import_recommendations.router import router as import_recommendations_rout
 from .inventory.router import router as inventory_router
 from .market_listings.router import router as market_listings_router
 from .market_watch.router import router as market_watch_router
+from .reprocessing.router import router as reprocessing_router
 from .settings.router import router as settings_router
 from .scheduler.jobs import start_scheduler, stop_scheduler
 from .templates import templates
@@ -50,6 +51,7 @@ app.include_router(import_recommendations_router)
 app.include_router(inventory_router)
 app.include_router(market_listings_router)
 app.include_router(market_watch_router)
+app.include_router(reprocessing_router)
 app.include_router(settings_router)
 
 

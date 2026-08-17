@@ -12,3 +12,4 @@ itsdangerous
 pyyaml
 beautifulsoup4
 discord.py
+scipy

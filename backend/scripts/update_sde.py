@@ -40,7 +40,8 @@ CREATE TABLE invTypes (
     volume        REAL,
     published     INTEGER,
     marketGroupID INTEGER,
-    groupID       INTEGER
+    groupID       INTEGER,
+    portionSize   INTEGER
 );
 CREATE TABLE invGroups (
     groupID    INTEGER PRIMARY KEY,
@@ -58,8 +59,15 @@ CREATE TABLE mapSolarSystems (
     solarSystemName TEXT,
     regionID        INTEGER
 );
+CREATE TABLE typeMaterials (
+    typeID         INTEGER,
+    materialTypeID INTEGER,
+    quantity       INTEGER,
+    PRIMARY KEY (typeID, materialTypeID)
+);
 CREATE INDEX idx_invtypes_name ON invTypes(typeName);
 CREATE INDEX idx_stations_name ON staStations(stationName);
+CREATE INDEX idx_typematerials_type ON typeMaterials(typeID);
 """
 
 
@@ -108,6 +116,7 @@ def convert(zip_data: bytes, out: Path) -> None:
         stations_yaml = _load(zf, "npcStations.yaml")
         corps_yaml = _load(zf, "npcCorporations.yaml")
         ops_yaml = _load(zf, "stationOperations.yaml")
+        materials_yaml = _load(zf, "typeMaterials.yaml")
 
     corp_names = {cid: _en(v.get("name")) for cid, v in corps_yaml.items()}
     op_names = {oid: _en(v.get("operationName")) for oid, v in ops_yaml.items()}
@@ -123,7 +132,7 @@ def convert(zip_data: bytes, out: Path) -> None:
     db.executescript(_SCHEMA)
 
     db.executemany(
-        "INSERT OR IGNORE INTO invTypes VALUES (?,?,?,?,?,?)",
+        "INSERT OR IGNORE INTO invTypes VALUES (?,?,?,?,?,?,?)",
         [
             (
                 tid,
@@ -132,8 +141,18 @@ def convert(zip_data: bytes, out: Path) -> None:
                 1 if v.get("published") else 0,
                 v.get("marketGroupID"),
                 v.get("groupID"),
+                v.get("portionSize"),
             )
             for tid, v in types_yaml.items()
+        ],
+    )
+
+    db.executemany(
+        "INSERT OR IGNORE INTO typeMaterials VALUES (?,?,?)",
+        [
+            (tid, m["materialTypeID"], m["quantity"])
+            for tid, v in materials_yaml.items()
+            for m in (v.get("materials") or [])
         ],
     )
 

@@ -48,6 +48,7 @@ const NAV = [
     items: [
       { label: 'Projects', href: '/industry' },
       { label: 'Jobs', href: '/industry/jobs' },
+      { label: 'Reprocessing', href: '/reprocessing' },
     ],
   },
   {
