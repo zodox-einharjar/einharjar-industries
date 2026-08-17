@@ -16,6 +16,10 @@ async def aggregate_project_needs(session) -> dict[int, dict]:
         .where(IndustryProject.status.in_(["planning", "in_progress"]))
         .options(selectinload(IndustryProject.materials))
     )).scalars().all()
+    # A project with no output location has no "correct location" to check stock
+    # against, so it can't be scored — same convention as doctrines/shortfall.py
+    # skipping doctrines with no staging location.
+    projects = [p for p in projects if p.output_location_id]
 
     type_ids = {m.type_id for p in projects for m in p.materials}
     if not type_ids:
@@ -26,9 +30,10 @@ async def aggregate_project_needs(session) -> dict[int, dict]:
         .where(InventoryLot.type_id.in_(type_ids))
         .where(InventoryLot.qty_remaining > 0)
     )).scalars().all()
-    lots_by_type: dict[int, list[InventoryLot]] = {}
+    lots_by_loc_type: dict[tuple[int, int], list[InventoryLot]] = {}
     for lot in lots:
-        lots_by_type.setdefault(lot.type_id, []).append(lot)
+        if lot.location_id is not None:
+            lots_by_loc_type.setdefault((lot.location_id, lot.type_id), []).append(lot)
 
     all_reservations = (await session.execute(
         select(LotReservation.lot_id, LotReservation.project_id, LotReservation.qty_reserved)
@@ -46,7 +51,7 @@ async def aggregate_project_needs(session) -> dict[int, dict]:
     for p in projects:
         for m in p.materials:
             avail = 0
-            for lot in lots_by_type.get(m.type_id, []):
+            for lot in lots_by_loc_type.get((p.output_location_id, m.type_id), []):
                 other_reserved = (
                     reserved_total_by_lot.get(lot.id, 0)
                     - reserved_by_project_lot.get((p.id, lot.id), 0)

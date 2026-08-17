@@ -5,6 +5,12 @@ import { useState, useRef } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface ElsewhereStock {
+  location_id: number
+  location_name: string
+  qty: number
+}
+
 interface Material {
   id: number
   type_id: number
@@ -13,6 +19,7 @@ interface Material {
   quantity_reserved: number
   qty_available_in_inventory: number
   qty_shortfall: number
+  qty_available_elsewhere: ElsewhereStock[]
 }
 
 interface Output {
@@ -482,6 +489,17 @@ function OverviewTab({
                         </td>
                         <td className={`px-4 py-2 text-right tabular-nums ${m.qty_shortfall > 0 ? 'text-red-400' : 'text-green-400'}`}>
                           {m.qty_shortfall > 0 ? `-${num(m.qty_shortfall)}` : '✓'}
+                          {m.qty_available_elsewhere.length > 0 && (
+                            <span
+                              className="ml-1.5 text-[10px] text-eve-amber align-middle cursor-help"
+                              title={
+                                'Also available at:\n' +
+                                m.qty_available_elsewhere.map(e => `${num(e.qty)} @ ${e.location_name}`).join('\n')
+                              }
+                            >
+                              ⓘ
+                            </span>
+                          )}
                         </td>
                       </>
                     )}

@@ -201,8 +201,13 @@ async def get_project(project_id: int):
         all_type_ids = [m.type_id for m in p.materials] + [o.type_id for o in p.outputs]
         names = type_names(all_type_ids)
 
-        # Inventory availability per material type
-        availability = {}
+        # Inventory availability per material type — scoped to the project's own
+        # output_location_id only. Stock sitting at other locations doesn't count
+        # toward the shortfall (you can't build with materials in another system),
+        # but is surfaced separately so the user knows it exists.
+        availability: dict[int, int] = {}
+        elsewhere: dict[int, dict[int, int]] = {}
+        reserved_by_lot: dict[int, int] = {}
         if p.materials:
             type_ids = [m.type_id for m in p.materials]
             lots = (await session.execute(
@@ -211,7 +216,7 @@ async def get_project(project_id: int):
                 .where(InventoryLot.qty_remaining > 0)
             )).scalars().all()
 
-            # Total reserved qty per type across ALL projects
+            # Total reserved qty per lot across OTHER projects
             reservations = (await session.execute(
                 select(LotReservation.lot_id, func.sum(LotReservation.qty_reserved).label("total"))
                 .join(InventoryLot, LotReservation.lot_id == InventoryLot.id)
@@ -222,15 +227,27 @@ async def get_project(project_id: int):
             reserved_by_lot = {r.lot_id: int(r.total) for r in reservations}
 
             for lot in lots:
-                other_reserved = reserved_by_lot.get(lot.id, 0)
-                available = lot.qty_remaining - other_reserved
-                if available > 0:
-                    availability[lot.type_id] = availability.get(lot.type_id, 0) + available
+                free = lot.qty_remaining - reserved_by_lot.get(lot.id, 0)
+                if free <= 0:
+                    continue
+                if p.output_location_id and lot.location_id == p.output_location_id:
+                    availability[lot.type_id] = availability.get(lot.type_id, 0) + free
+                elif lot.location_id is not None:
+                    by_loc = elsewhere.setdefault(lot.type_id, {})
+                    by_loc[lot.location_id] = by_loc.get(lot.location_id, 0) + free
+
+        elsewhere_loc_names: dict[int, str] = {}
+        elsewhere_loc_ids = {lid for by_loc in elsewhere.values() for lid in by_loc}
+        if elsewhere_loc_ids:
+            rows = (await session.execute(
+                select(Location.id, Location.name).where(Location.id.in_(elsewhere_loc_ids))
+            )).all()
+            elsewhere_loc_names = {r.id: r.name for r in rows}
 
         # Material cost:
         # - complete: frozen at completion time
         # - in_progress: use actual reservation lot costs
-        # - planning: FIFO-simulate from available lots
+        # - planning: FIFO-simulate from lots available at the project's own location
         material_cost = 0.0
         if p.status == "complete":
             material_cost = float(p.frozen_material_cost) if p.frozen_material_cost is not None else 0.0
@@ -241,11 +258,12 @@ async def get_project(project_id: int):
                 .where(LotReservation.project_id == project_id)
             )).scalars().all()
             material_cost = sum(float(r.qty_reserved * r.lot.unit_cost) for r in own_reservations)
-        elif p.materials:
+        elif p.materials and p.output_location_id:
             type_ids = [m.type_id for m in p.materials]
             all_lots = (await session.execute(
                 select(InventoryLot)
                 .where(InventoryLot.type_id.in_(type_ids))
+                .where(InventoryLot.location_id == p.output_location_id)
                 .where(InventoryLot.qty_remaining > 0)
                 .order_by(InventoryLot.purchased_at)
             )).scalars().all()
@@ -269,6 +287,10 @@ async def get_project(project_id: int):
                 **_material_dict(m, names),
                 "qty_available_in_inventory": avail,
                 "qty_shortfall": max(0, m.quantity_needed - avail),
+                "qty_available_elsewhere": [
+                    {"location_id": lid, "location_name": elsewhere_loc_names.get(lid, str(lid)), "qty": qty}
+                    for lid, qty in sorted(elsewhere.get(m.type_id, {}).items(), key=lambda x: -x[1])
+                ],
             })
 
         jobs_by_category = {cat: [] for cat in VALID_CATEGORIES}
@@ -418,15 +440,18 @@ async def start_project(project_id: int):
             raise HTTPException(400, f"Project is {p.status}, not planning")
         if not p.materials:
             raise HTTPException(400, "Add materials before starting")
+        if not p.output_location_id:
+            raise HTTPException(400, "Set an output location before starting")
 
         type_ids = [m.type_id for m in p.materials]
 
-        # Load all relevant lots ordered FIFO
+        # Load all relevant lots ordered FIFO — scoped to the project's own location only
         lots_by_type: dict[int, list[InventoryLot]] = {}
         for tid in type_ids:
             lots = (await session.execute(
                 select(InventoryLot)
                 .where(InventoryLot.type_id == tid)
+                .where(InventoryLot.location_id == p.output_location_id)
                 .where(InventoryLot.qty_remaining > 0)
                 .order_by(InventoryLot.purchased_at)
             )).scalars().all()
