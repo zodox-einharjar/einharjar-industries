@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -8,7 +8,15 @@ from ..auth.tokens import TokenExpiredError, get_valid_token
 from ..db import AsyncSessionLocal
 from ..discord import notifier
 from ..esi.client import ESIError, esi
-from ..models import Character, MercenaryDen, MercenaryNotification, MercenaryOperation
+from ..models import (
+    Character,
+    MercenaryDen,
+    MercenaryDenSnapshot,
+    MercenaryNotification,
+    MercenaryOperation,
+)
+
+_SNAPSHOT_RETENTION_DAYS = 30
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +99,18 @@ async def _poll_char_dens(char_id: int) -> dict:
             )
             await session.execute(stmt)
 
+            await session.execute(
+                pg_insert(MercenaryDenSnapshot).values(
+                    den_id=d["id"],
+                    development_level=d["evolution"]["development"]["level"],
+                    development_amount=d["evolution"]["development"]["amount"],
+                    anarchy_level=d["evolution"]["anarchy"]["level"],
+                    anarchy_amount=d["evolution"]["anarchy"]["amount"],
+                    infomorphs=d["infomorphs"]["amount"],
+                    recorded_at=now,
+                )
+            )
+
         await session.execute(
             delete(MercenaryDen).where(
                 MercenaryDen.character_id == char.id,
@@ -133,7 +153,6 @@ async def _poll_char_mtos(char_id: int) -> dict:
             return {"count": 0}
 
         now = datetime.now(timezone.utc)
-        seen_ids = [op["id"] for op in operations]
         for op in operations:
             stmt = pg_insert(MercenaryOperation).values(
                 operation_id=op["id"],
@@ -142,6 +161,7 @@ async def _poll_char_mtos(char_id: int) -> dict:
                 dungeon_type_id=op["dungeon_type_id"],
                 state=op["state"],
                 expires=_parse_dt(op["expires"]),
+                first_seen_at=now,
                 last_synced=now,
             ).on_conflict_do_update(
                 index_elements=["operation_id"],
@@ -153,12 +173,9 @@ async def _poll_char_mtos(char_id: int) -> dict:
             )
             await session.execute(stmt)
 
-        await session.execute(
-            delete(MercenaryOperation).where(
-                MercenaryOperation.character_id == char.id,
-                ~MercenaryOperation.operation_id.in_(seen_ids),
-            )
-        )
+        # Deliberately not deleting operations that drop off the live listing —
+        # their first_seen_at timestamps are the only signal available for
+        # estimating the average gap between MTO spawns per den.
         await session.commit()
         logger.info("Mercenary operations: %d upserted for %s", len(operations), char.character_name)
         return {"count": len(operations)}
@@ -238,6 +255,13 @@ async def _notify_mercenary_events() -> None:
         await session.commit()
 
 
+async def _prune_old_snapshots() -> None:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_SNAPSHOT_RETENTION_DAYS)
+    async with AsyncSessionLocal() as session:
+        await session.execute(delete(MercenaryDenSnapshot).where(MercenaryDenSnapshot.recorded_at < cutoff))
+        await session.commit()
+
+
 async def poll_mercenary() -> dict:
     async with AsyncSessionLocal() as session:
         all_chars = (await session.execute(select(Character))).scalars().all()
@@ -255,5 +279,6 @@ async def poll_mercenary() -> dict:
             await _poll_char_notifications(char.id)
 
     await _notify_mercenary_events()
+    await _prune_old_snapshots()
 
     return totals

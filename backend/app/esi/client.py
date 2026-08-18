@@ -205,6 +205,23 @@ class ESIClient:
 
         return result
 
+    async def resolve_planet_names(self, planet_ids: list[int]) -> dict[int, str]:
+        """Resolve planet IDs to names via /universe/planets/{id}/.
+
+        Planets aren't a supported category on the bulk /universe/names/
+        endpoint, so they need this per-ID public endpoint instead. Each call
+        goes through the normal get() path, so results are cached in
+        esi_cache per the response's own Expires header (planet data is
+        effectively static)."""
+        result: dict[int, str] = {}
+        for planet_id in planet_ids:
+            try:
+                data = await self.get(f"/universe/planets/{planet_id}/")
+                result[planet_id] = data["name"]
+            except ESIError as e:
+                logger.warning("resolve_planet_names: ESI %s for planet %s", e.status, planet_id)
+        return result
+
     async def purge_expired_cache(self) -> None:
         async with AsyncSessionLocal() as session:
             await session.execute(

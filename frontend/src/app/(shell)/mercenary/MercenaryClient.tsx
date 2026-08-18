@@ -5,6 +5,13 @@ import { useTopbarActions } from '@/lib/topbar-context'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface ActiveOperation {
+  state: string
+  expires: string
+  dungeon_type_id: number
+  dungeon_name: string | null
+}
+
 interface MercenaryDen {
   id: number
   den_id: number
@@ -17,14 +24,20 @@ interface MercenaryDen {
   state: string
   development_level: string
   development_amount: number
+  development_next_level_at: string | null
   anarchy_level: string
   anarchy_amount: number
+  anarchy_next_level_at: string | null
   infomorphs: number
+  infomorphs_rate_min: number | null
+  infomorphs_rate_max: number | null
   reinforced_until: string | null
   skyhook_planet_id: number | null
   skyhook_planet_name: string | null
   skyhook_corporation_id: number | null
   skyhook_corporation_name: string | null
+  active_operation: ActiveOperation | null
+  next_mto_estimate_at: string | null
   last_synced: string
 }
 
@@ -72,7 +85,9 @@ const MTO_STATE_COLORS: Record<string, string> = {
 const TD = 'px-3 py-2 align-middle'
 const TH = 'px-3 py-2 text-[10px] text-muted font-semibold uppercase tracking-wider whitespace-nowrap text-left'
 
-function Meter({ label, level, amount }: { label: string; level: string; amount: number }) {
+function Meter({
+  label, level, amount, nextLevelAt,
+}: { label: string; level: string; amount: number; nextLevelAt: string | null }) {
   return (
     <div className="min-w-[120px]">
       <div className="flex items-center justify-between text-[10px] text-muted mb-0.5">
@@ -81,6 +96,13 @@ function Meter({ label, level, amount }: { label: string; level: string; amount:
       </div>
       <div className="h-1.5 rounded-full bg-wire overflow-hidden">
         <div className="h-full bg-accent" style={{ width: `${amount}%` }} />
+      </div>
+      <div className="text-[10px] text-faint mt-0.5">
+        {amount >= 100
+          ? 'maxed'
+          : nextLevelAt
+            ? `~${fmtRemaining(nextLevelAt)} to next level (est.)`
+            : 'next level: calculating…'}
       </div>
     </div>
   )
@@ -171,10 +193,25 @@ export function MercenaryClient() {
                 <div className="text-[11px] text-muted truncate">
                   {d.character_name} · {d.planet_name ?? `Planet ${d.planet_id}`}
                 </div>
-                <Meter label="Development" level={d.development_level} amount={d.development_amount} />
-                <Meter label="Anarchy" level={d.anarchy_level} amount={d.anarchy_amount} />
+                <Meter label="Development" level={d.development_level} amount={d.development_amount} nextLevelAt={d.development_next_level_at} />
+                <Meter label="Anarchy" level={d.anarchy_level} amount={d.anarchy_amount} nextLevelAt={d.anarchy_next_level_at} />
                 <div className="text-[11px] text-muted">
                   Infomorphs: <span className="text-secondary font-mono">{d.infomorphs}</span>
+                  {d.infomorphs_rate_min != null && (
+                    <span className="text-faint"> ({d.infomorphs_rate_min}–{d.infomorphs_rate_max}/hr)</span>
+                  )}
+                </div>
+                <div className="text-[11px]">
+                  {d.active_operation ? (
+                    <span className={d.active_operation.state === 'Started' ? 'text-eve-green' : 'text-accent'}>
+                      MTO {d.active_operation.state.toLowerCase()} — {d.active_operation.dungeon_name ?? `Type ${d.active_operation.dungeon_type_id}`},
+                      {' '}expires in {fmtRemaining(d.active_operation.expires)}
+                    </span>
+                  ) : d.next_mto_estimate_at ? (
+                    <span className="text-faint">Next MTO (est.): ~{fmtRemaining(d.next_mto_estimate_at)}</span>
+                  ) : (
+                    <span className="text-faint">No active MTO — not enough history for an estimate yet</span>
+                  )}
                 </div>
                 {d.reinforced_until && (
                   <div className="text-[11px] text-eve-red">

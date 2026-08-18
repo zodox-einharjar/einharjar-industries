@@ -405,6 +405,26 @@ class MercenaryDen(Base):
     last_synced: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
 
 
+class MercenaryDenSnapshot(Base):
+    """Append-only history of a den's evolution/infomorph readings, one row per
+    poll cycle. CCP doesn't document growth rates or level thresholds, so rates
+    shown in the UI are derived from these observed deltas rather than a
+    hardcoded formula."""
+    __tablename__ = "mercenary_den_snapshots"
+    __table_args__ = (
+        Index("ix_mercenary_den_snapshots_den_time", "den_id", "recorded_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    den_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    development_level: Mapped[str] = mapped_column(Text, nullable=False)
+    development_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    anarchy_level: Mapped[str] = mapped_column(Text, nullable=False)
+    anarchy_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    infomorphs: Mapped[int] = mapped_column(Integer, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+
 class MercenaryOperation(Base):
     __tablename__ = "mercenary_operations"
 
@@ -415,6 +435,7 @@ class MercenaryOperation(Base):
     dungeon_type_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     state: Mapped[str] = mapped_column(Text, nullable=False)  # Available | Started | Completed | Expired | Removed
     expires: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
 
     last_synced: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
 
