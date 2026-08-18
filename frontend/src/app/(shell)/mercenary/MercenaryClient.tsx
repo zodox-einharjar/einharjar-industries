@@ -24,9 +24,11 @@ interface MercenaryDen {
   state: string
   development_level: string
   development_amount: number
+  development_next_threshold: number
   development_next_level_at: string | null
   anarchy_level: string
   anarchy_amount: number
+  anarchy_next_threshold: number
   anarchy_next_level_at: string | null
   infomorphs: number
   infomorphs_rate_min: number | null
@@ -85,24 +87,37 @@ const MTO_STATE_COLORS: Record<string, string> = {
 const TD = 'px-3 py-2 align-middle'
 const TH = 'px-3 py-2 text-[10px] text-muted font-semibold uppercase tracking-wider whitespace-nowrap text-left'
 
+// Cumulative bands are 20/20/30/30 (Level0-3), each rendered as its own
+// segment of the bar so the level boundaries are visible at a glance.
+const LEVEL_BANDS = [
+  { start: 0,  end: 20,  color: 'bg-eve-green' },
+  { start: 20, end: 40,  color: 'bg-eve-amber' },
+  { start: 40, end: 70,  color: 'bg-eve-red' },
+  { start: 70, end: 100, color: 'bg-eve-red' },
+]
+
 function Meter({
-  label, level, amount, nextLevelAt,
-}: { label: string; level: string; amount: number; nextLevelAt: string | null }) {
+  label, level, amount, nextThreshold, nextLevelAt,
+}: { label: string; level: string; amount: number; nextThreshold: number; nextLevelAt: string | null }) {
   return (
     <div className="min-w-[120px]">
       <div className="flex items-center justify-between text-[10px] text-muted mb-0.5">
         <span>{label}</span>
-        <span>{level.replace('Level', 'L')} · {amount}/100</span>
+        <span>{level.replace('Level', 'L')} · {amount}/{nextThreshold}</span>
       </div>
-      <div className="h-1.5 rounded-full bg-wire overflow-hidden">
-        <div className="h-full bg-accent" style={{ width: `${amount}%` }} />
+      <div className="flex h-1.5 rounded-full overflow-hidden gap-px">
+        {LEVEL_BANDS.map((band, i) => {
+          const width = band.end - band.start
+          const fillPct = Math.max(0, Math.min(1, (amount - band.start) / width)) * 100
+          return (
+            <div key={i} className="bg-wire" style={{ width: `${width}%` }}>
+              <div className={`h-full ${band.color}`} style={{ width: `${fillPct}%` }} />
+            </div>
+          )
+        })}
       </div>
       <div className="text-[10px] text-faint mt-0.5">
-        {amount >= 100
-          ? 'maxed'
-          : nextLevelAt
-            ? `~${fmtRemaining(nextLevelAt)} to next level (est.)`
-            : 'next level: calculating…'}
+        {amount >= 100 ? 'maxed' : nextLevelAt ? `~${fmtRemaining(nextLevelAt)} to next level` : ''}
       </div>
     </div>
   )
@@ -193,8 +208,8 @@ export function MercenaryClient() {
                 <div className="text-[11px] text-muted truncate">
                   {d.character_name} · {d.planet_name ?? `Planet ${d.planet_id}`}
                 </div>
-                <Meter label="Development" level={d.development_level} amount={d.development_amount} nextLevelAt={d.development_next_level_at} />
-                <Meter label="Anarchy" level={d.anarchy_level} amount={d.anarchy_amount} nextLevelAt={d.anarchy_next_level_at} />
+                <Meter label="Development" level={d.development_level} amount={d.development_amount} nextThreshold={d.development_next_threshold} nextLevelAt={d.development_next_level_at} />
+                <Meter label="Anarchy" level={d.anarchy_level} amount={d.anarchy_amount} nextThreshold={d.anarchy_next_threshold} nextLevelAt={d.anarchy_next_level_at} />
                 <div className="text-[11px] text-muted">
                   Infomorphs: <span className="text-secondary font-mono">{d.infomorphs}</span>
                   {d.infomorphs_rate_min != null && (
@@ -218,10 +233,6 @@ export function MercenaryClient() {
                     Reinforced — {fmtRemaining(d.reinforced_until)} left
                   </div>
                 )}
-                <div className="text-[11px] text-faint truncate" title={d.skyhook_corporation_name ?? undefined}>
-                  Contesting: {d.skyhook_corporation_name ?? (d.skyhook_corporation_id ?? '—')} skyhook on{' '}
-                  {d.skyhook_planet_name ?? (d.skyhook_planet_id ? `planet ${d.skyhook_planet_id}` : '—')}
-                </div>
               </div>
             ))}
           </div>

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -8,15 +8,7 @@ from ..auth.tokens import TokenExpiredError, get_valid_token
 from ..db import AsyncSessionLocal
 from ..discord import notifier
 from ..esi.client import ESIError, esi
-from ..models import (
-    Character,
-    MercenaryDen,
-    MercenaryDenSnapshot,
-    MercenaryNotification,
-    MercenaryOperation,
-)
-
-_SNAPSHOT_RETENTION_DAYS = 30
+from ..models import Character, MercenaryDen, MercenaryNotification, MercenaryOperation
 
 logger = logging.getLogger(__name__)
 
@@ -98,18 +90,6 @@ async def _poll_char_dens(char_id: int) -> dict:
                 },
             )
             await session.execute(stmt)
-
-            await session.execute(
-                pg_insert(MercenaryDenSnapshot).values(
-                    den_id=d["id"],
-                    development_level=d["evolution"]["development"]["level"],
-                    development_amount=d["evolution"]["development"]["amount"],
-                    anarchy_level=d["evolution"]["anarchy"]["level"],
-                    anarchy_amount=d["evolution"]["anarchy"]["amount"],
-                    infomorphs=d["infomorphs"]["amount"],
-                    recorded_at=now,
-                )
-            )
 
         await session.execute(
             delete(MercenaryDen).where(
@@ -255,13 +235,6 @@ async def _notify_mercenary_events() -> None:
         await session.commit()
 
 
-async def _prune_old_snapshots() -> None:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=_SNAPSHOT_RETENTION_DAYS)
-    async with AsyncSessionLocal() as session:
-        await session.execute(delete(MercenaryDenSnapshot).where(MercenaryDenSnapshot.recorded_at < cutoff))
-        await session.commit()
-
-
 async def poll_mercenary() -> dict:
     async with AsyncSessionLocal() as session:
         all_chars = (await session.execute(select(Character))).scalars().all()
@@ -279,6 +252,5 @@ async def poll_mercenary() -> dict:
             await _poll_char_notifications(char.id)
 
     await _notify_mercenary_events()
-    await _prune_old_snapshots()
 
     return totals

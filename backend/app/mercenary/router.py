@@ -7,15 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.deps import get_current_character
 from ..db import AsyncSessionLocal
 from ..esi.client import esi
-from ..models import Character, MercenaryDen, MercenaryDenSnapshot, MercenaryOperation
+from ..models import Character, MercenaryDen, MercenaryOperation
 from ..sde import type_names
 
 router = APIRouter(prefix="/mercenary", dependencies=[Depends(get_current_character)])
 
-# Development/anarchy bands are 20/20/30/30 (cumulative thresholds 20-40-70-100),
-# not evenly spaced — confirmed by the user, not documented by CCP anywhere public.
+# Development/anarchy bands are 20/20/30/30 (cumulative thresholds 20-40-70-100)
+# and both rise at a fixed 5 points per 24 hours — confirmed by the user, not
+# documented by CCP anywhere public.
 _LEVEL_THRESHOLDS = [20, 40, 70, 100]
-_MIN_RATE_WINDOW = timedelta(minutes=20)
+_LEVEL_RATE_PER_HOUR = 5 / 24
 
 # Infomorph generation rate depends on development level (confirmed by the
 # user; not in any public ESI/wiki documentation). Shown as a range since
@@ -45,36 +46,12 @@ def _next_level_threshold(level: str) -> int | None:
     return _LEVEL_THRESHOLDS[idx]
 
 
-async def _estimate_next_level(
-    session: AsyncSession, den_id: int, level_field: str, amount_field: str,
-    current_level: str, current_amount: int,
-) -> datetime | None:
+def _estimate_next_level(current_level: str, current_amount: int) -> datetime | None:
     threshold = _next_level_threshold(current_level)
     if threshold is None or current_amount >= threshold:
         return None
-
-    level_col = getattr(MercenaryDenSnapshot, level_field)
-    result = await session.execute(
-        select(MercenaryDenSnapshot)
-        .where(MercenaryDenSnapshot.den_id == den_id, level_col == current_level)
-        .order_by(MercenaryDenSnapshot.recorded_at.asc())
-    )
-    snaps = result.scalars().all()
-    if len(snaps) < 2:
-        return None
-
-    earliest, latest = snaps[0], snaps[-1]
-    elapsed = latest.recorded_at - earliest.recorded_at
-    if elapsed < _MIN_RATE_WINDOW:
-        return None
-
-    delta = getattr(latest, amount_field) - getattr(earliest, amount_field)
-    if delta <= 0:
-        return None
-
-    rate_per_second = delta / elapsed.total_seconds()
-    seconds_needed = (threshold - current_amount) / rate_per_second
-    return datetime.now(timezone.utc) + timedelta(seconds=seconds_needed)
+    hours_needed = (threshold - current_amount) / _LEVEL_RATE_PER_HOUR
+    return datetime.now(timezone.utc) + timedelta(hours=hours_needed)
 
 
 async def _mto_status(session: AsyncSession, den_id: int) -> tuple[dict | None, str | None]:
@@ -127,14 +104,8 @@ async def list_dens():
 
         result = []
         for d in dens:
-            development_eta = await _estimate_next_level(
-                session, d.den_id, "development_level", "development_amount",
-                d.development_level, d.development_amount,
-            )
-            anarchy_eta = await _estimate_next_level(
-                session, d.den_id, "anarchy_level", "anarchy_amount",
-                d.anarchy_level, d.anarchy_amount,
-            )
+            development_eta = _estimate_next_level(d.development_level, d.development_amount)
+            anarchy_eta = _estimate_next_level(d.anarchy_level, d.anarchy_amount)
             infomorph_rate_range = _INFOMORPH_RATE_BY_LEVEL.get(d.development_level)
             active_op, next_mto_estimate = await _mto_status(session, d.den_id)
 
@@ -150,9 +121,11 @@ async def list_dens():
                 "state": d.state,
                 "development_level": d.development_level,
                 "development_amount": d.development_amount,
+                "development_next_threshold": _next_level_threshold(d.development_level) or 100,
                 "development_next_level_at": development_eta.isoformat() if development_eta else None,
                 "anarchy_level": d.anarchy_level,
                 "anarchy_amount": d.anarchy_amount,
+                "anarchy_next_threshold": _next_level_threshold(d.anarchy_level) or 100,
                 "anarchy_next_level_at": anarchy_eta.isoformat() if anarchy_eta else None,
                 "infomorphs": d.infomorphs,
                 "infomorphs_rate_min": infomorph_rate_range[0] if infomorph_rate_range else None,
