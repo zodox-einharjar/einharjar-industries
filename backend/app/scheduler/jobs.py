@@ -9,6 +9,7 @@ async def start_scheduler() -> None:
     from ..market.transaction_poller import poll_wallet_transactions
     from ..contracts.poller import poll_contracts
     from ..industry_jobs.poller import poll_industry_jobs
+    from ..mercenary.poller import poll_mercenary
     from ..db import AsyncSessionLocal
     from ..models import AppSetting
 
@@ -26,6 +27,7 @@ async def start_scheduler() -> None:
     _scheduler.add_job(poll_wallet_transactions, "interval", minutes=5, id="poll_transactions", replace_existing=True)
     _scheduler.add_job(poll_contracts, "interval", minutes=5, id="poll_contracts", replace_existing=True)
     _scheduler.add_job(poll_industry_jobs, "interval", minutes=5, id="poll_industry_jobs", replace_existing=True)
+    _scheduler.add_job(poll_mercenary, "interval", minutes=5, id="poll_mercenary", replace_existing=True)
     _scheduler.start()
 
 

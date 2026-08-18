@@ -63,6 +63,10 @@ const NAV = [
     ],
   },
   {
+    label: 'PvP',
+    items: [{ label: 'Mercenary Dens', href: '/mercenary' }],
+  },
+  {
     label: 'Config',
     items: [{ label: 'Settings', href: '/settings' }],
   },

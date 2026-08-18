@@ -29,6 +29,9 @@ _CHAR_SCOPES = [
     "esi-wallet.read_character_wallet.v1",
     "esi-industry.read_character_jobs.v1",
     "esi-contracts.read_character_contracts.v1",
+    "esi-structures.read_character.v1",
+    "esi-activities.read_character.v1",
+    "esi-characters.read_notifications.v1",
 ]
 
 _CORP_SCOPES = [

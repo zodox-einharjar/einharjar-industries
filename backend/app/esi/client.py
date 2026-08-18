@@ -32,6 +32,18 @@ class ESIClient:
             },
             timeout=30.0,
         )
+        # Newer ESI routes (e.g. mercenary dens) are only served under CCP's
+        # compatibility-date versioning scheme, off the bare esi.evetech.net
+        # root rather than settings.esi_base_url's /latest/ prefix.
+        self._compat_http = httpx.AsyncClient(
+            base_url="https://esi.evetech.net",
+            headers={
+                "User-Agent": settings.esi_user_agent,
+                "Accept": "application/json",
+                "X-Compatibility-Date": "2026-05-19",
+            },
+            timeout=30.0,
+        )
         self._error_remain: int = 100
         self._error_reset_at: datetime = datetime.now(timezone.utc)
         self.last_page_expires: datetime | None = None
@@ -61,18 +73,20 @@ class ESIClient:
         *,
         token: str | None = None,
         params: dict | None = None,
+        compat: bool = False,
     ) -> httpx.Response:
         """Single GET with error-budget wait and one 429 retry."""
         await self._wait_if_budget_low()
+        http = self._compat_http if compat else self._http
         headers: dict[str, str] = {}
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        response = await self._http.get(path, params=params, headers=headers)
+        response = await http.get(path, params=params, headers=headers)
         self._update_error_budget(response)
         if response.status_code == 429:
             retry_after = int(response.headers.get("Retry-After", 60))
             await asyncio.sleep(retry_after)
-            response = await self._http.get(path, params=params, headers=headers)
+            response = await http.get(path, params=params, headers=headers)
             self._update_error_budget(response)
         return response
 
@@ -82,6 +96,7 @@ class ESIClient:
         *,
         token: str | None = None,
         params: dict | None = None,
+        compat: bool = False,
     ) -> Any:
         key = self._cache_key(path, params)
 
@@ -90,7 +105,7 @@ class ESIClient:
             if cached and cached.expires_at > datetime.now(timezone.utc):
                 return cached.data
 
-        response = await self._raw_get(path, token=token, params=params)
+        response = await self._raw_get(path, token=token, params=params, compat=compat)
 
         if not response.is_success:
             raise ESIError(response.status_code, path)
@@ -199,6 +214,7 @@ class ESIClient:
 
     async def close(self) -> None:
         await self._http.aclose()
+        await self._compat_http.aclose()
 
 
 esi = ESIClient()

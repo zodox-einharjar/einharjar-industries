@@ -379,3 +379,52 @@ class IndustryJob(Base):
     completed_character_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     last_synced: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+
+class MercenaryDen(Base):
+    __tablename__ = "mercenary_dens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    den_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
+    character_id: Mapped[int] = mapped_column(ForeignKey("characters.id", ondelete="CASCADE"), nullable=False)
+    planet_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    type_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    state: Mapped[str] = mapped_column(Text, nullable=False)  # Running | Paused | Disabled
+    development_level: Mapped[str] = mapped_column(Text, nullable=False)
+    development_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    anarchy_level: Mapped[str] = mapped_column(Text, nullable=False)
+    anarchy_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    infomorphs: Mapped[int] = mapped_column(Integer, nullable=False)
+    reinforced_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+
+    skyhook_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    skyhook_planet_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    skyhook_corporation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    last_synced: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+
+class MercenaryOperation(Base):
+    __tablename__ = "mercenary_operations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    operation_id: Mapped[str] = mapped_column(Text, unique=True, index=True, nullable=False)
+    character_id: Mapped[int] = mapped_column(ForeignKey("characters.id", ondelete="CASCADE"), nullable=False)
+    den_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    dungeon_type_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False)  # Available | Started | Completed | Expired | Removed
+    expires: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+    last_synced: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+
+class MercenaryNotification(Base):
+    __tablename__ = "mercenary_notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    notification_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
+    character_id: Mapped[int] = mapped_column(ForeignKey("characters.id", ondelete="CASCADE"), nullable=False)
+    type: Mapped[str] = mapped_column(Text, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    discord_notified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
