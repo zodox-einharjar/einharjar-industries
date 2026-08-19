@@ -379,9 +379,9 @@ export function MercenaryClient() {
       </div>
 
       <div className="space-y-2">
-        <h2 className="text-[13px] text-primary font-medium">Tactical Operations</h2>
+        <h2 className="text-[13px] text-primary font-medium">Mercenary Tactical Operations</h2>
         {operations.length === 0 ? (
-          <p className="text-faint text-[13px] py-8 text-center">No active or recent Mercenary Tactical Operations.</p>
+          <p className="text-faint text-[13px] py-8">No active or recent Mercenary Tactical Operations.</p>
         ) : (
           <div className="border border-wire rounded overflow-x-auto">
             <table className="w-full text-[12px]">
