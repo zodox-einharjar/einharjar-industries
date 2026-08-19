@@ -9,6 +9,7 @@ from ..db import AsyncSessionLocal
 from ..discord import notifier
 from ..esi.client import ESIError, esi
 from ..models import Character, MercenaryDen, MercenaryNotification, MercenaryOperation
+from ..sde import type_names
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +17,22 @@ _DEN_SCOPE = "esi-structures.read_character.v1"
 _MTO_SCOPE = "esi-activities.read_character.v1"
 _NOTIFICATION_SCOPE = "esi-characters.read_notifications.v1"
 
-_NOTIFICATION_TYPES = {"MercenaryDenAttacked", "MercenaryDenReinforced", "MercenaryDenNewMTO"}
+_NOTIFICATION_TYPES = {"MercenaryDenAttacked", "MercenaryDenReinforced"}
+
+_MTO_ACTIVE_STATES = ("Available", "Started")
 
 
 def _parse_dt(s: str | None) -> datetime | None:
     if not s:
         return None
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def _level_num(level: str) -> int:
+    try:
+        return int(level.removeprefix("Level"))
+    except ValueError:
+        return 0
 
 
 async def _poll_char_dens(char_id: int) -> dict:
@@ -57,6 +67,32 @@ async def _poll_char_dens(char_id: int) -> dict:
 
         now = datetime.now(timezone.utc)
         seen_ids = [d["id"] for d in dens]
+
+        existing = (await session.execute(
+            select(MercenaryDen).where(MercenaryDen.den_id.in_(seen_ids))
+        )).scalars().all()
+        old_levels_by_den_id = {
+            row.den_id: (row.development_level, row.anarchy_level) for row in existing
+        }
+
+        level_up_messages: list[str] = []
+        for d in dens:
+            new_dev_level = d["evolution"]["development"]["level"]
+            new_anarchy_level = d["evolution"]["anarchy"]["level"]
+            old = old_levels_by_den_id.get(d["id"])
+            if old:
+                old_dev_level, old_anarchy_level = old
+                if _level_num(new_dev_level) > _level_num(old_dev_level):
+                    level_up_messages.append(
+                        f"**Development level up** — {char.character_name}'s den on planet "
+                        f"{d['planet_id']} reached {new_dev_level.replace('Level', 'L')}"
+                    )
+                if _level_num(new_anarchy_level) > _level_num(old_anarchy_level):
+                    level_up_messages.append(
+                        f"**Anarchy level up** — {char.character_name}'s den on planet "
+                        f"{d['planet_id']} reached {new_anarchy_level.replace('Level', 'L')}"
+                    )
+
         for d in dens:
             timer = d.get("reinforcement_timer")
             skyhook = d["skyhook"]
@@ -99,6 +135,10 @@ async def _poll_char_dens(char_id: int) -> dict:
         )
         await session.commit()
         logger.info("Mercenary dens: %d upserted for %s", len(dens), char.character_name)
+
+        for msg in level_up_messages:
+            await notifier.notify(msg)
+
         return {"count": len(dens)}
 
 
@@ -133,6 +173,30 @@ async def _poll_char_mtos(char_id: int) -> dict:
             return {"count": 0}
 
         now = datetime.now(timezone.utc)
+
+        existing_ops = (await session.execute(
+            select(MercenaryOperation).where(
+                MercenaryOperation.operation_id.in_([op["id"] for op in operations])
+            )
+        )).scalars().all()
+        old_state_by_op_id = {row.operation_id: row.state for row in existing_ops}
+
+        newly_active = [
+            op for op in operations
+            if op["state"] in _MTO_ACTIVE_STATES
+            and old_state_by_op_id.get(op["id"]) not in _MTO_ACTIVE_STATES
+        ]
+        active_msg_context: dict = {}
+        if newly_active:
+            den_rows = (await session.execute(
+                select(MercenaryDen.den_id, MercenaryDen.planet_id).where(
+                    MercenaryDen.den_id.in_([op["mercenary_den_id"] for op in newly_active])
+                )
+            )).all()
+            planet_by_den_id = {row.den_id: row.planet_id for row in den_rows}
+            dungeon_names = type_names([op["dungeon_type_id"] for op in newly_active])
+            active_msg_context = {"planets": planet_by_den_id, "dungeons": dungeon_names}
+
         for op in operations:
             stmt = pg_insert(MercenaryOperation).values(
                 operation_id=op["id"],
@@ -158,6 +222,15 @@ async def _poll_char_mtos(char_id: int) -> dict:
         # estimating the average gap between MTO spawns per den.
         await session.commit()
         logger.info("Mercenary operations: %d upserted for %s", len(operations), char.character_name)
+
+        for op in newly_active:
+            planet_id = active_msg_context["planets"].get(op["mercenary_den_id"])
+            dungeon_name = active_msg_context["dungeons"].get(op["dungeon_type_id"]) or f"type {op['dungeon_type_id']}"
+            where = f"planet {planet_id}" if planet_id else f"den {op['mercenary_den_id']}"
+            await notifier.notify(
+                f"**MTO active** — {char.character_name}'s den on {where}: {dungeon_name} ({op['state']})"
+            )
+
         return {"count": len(operations)}
 
 
@@ -201,7 +274,6 @@ async def _poll_char_notifications(char_id: int) -> dict:
 _ALERT_LABELS = {
     "MercenaryDenAttacked": "attacked",
     "MercenaryDenReinforced": "reinforced",
-    "MercenaryDenNewMTO": "spawned a new Mercenary Tactical Operation",
 }
 
 
