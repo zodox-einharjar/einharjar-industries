@@ -24,6 +24,7 @@ const config: Config = {
         // Accent / status
         accent:       'var(--accent)',
         'eve-green':  'var(--green)',
+        'eve-yellow': 'var(--yellow)',
         'eve-amber':  'var(--amber)',
         'eve-red':    'var(--red)',
       },

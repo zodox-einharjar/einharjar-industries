@@ -18,6 +18,7 @@ input[type=number] { -moz-appearance: textfield; }
   --text-faint:      #4a5068;
   --accent:          #5b9fd4;
   --green:           #4a9a5a;
+  --yellow:          #c9a227;
   --amber:           #c07030;
   --red:             #b04040;
 }

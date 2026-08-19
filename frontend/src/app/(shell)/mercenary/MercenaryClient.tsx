@@ -22,6 +22,7 @@ interface MercenaryDen {
   type_id: number
   type_name: string | null
   state: string
+  deployed_at: string | null
   development_level: string
   development_amount: number
   development_next_threshold: number
@@ -40,6 +41,7 @@ interface MercenaryDen {
   skyhook_corporation_name: string | null
   active_operation: ActiveOperation | null
   next_mto_estimate_at: string | null
+  mto_locked: boolean
   last_synced: string
 }
 
@@ -70,6 +72,23 @@ function fmtRemaining(iso: string): string {
   return `${mins}m`
 }
 
+function fmtElapsed(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  if (diffMs <= 0) return '0m'
+  const days  = Math.floor(diffMs / 86_400_000)
+  const hours = Math.floor((diffMs % 86_400_000) / 3_600_000)
+  const mins  = Math.floor((diffMs % 3_600_000) / 60_000)
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${mins}m`
+  return `${mins}m`
+}
+
+function toLocalInputValue(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 const DEN_STATE_COLORS: Record<string, string> = {
   Running:  'text-eve-green border-eve-green/40 bg-eve-green/10',
   Paused:   'text-eve-amber border-eve-amber/40 bg-eve-amber/10',
@@ -87,18 +106,42 @@ const MTO_STATE_COLORS: Record<string, string> = {
 const TD = 'px-3 py-2 align-middle'
 const TH = 'px-3 py-2 text-[10px] text-muted font-semibold uppercase tracking-wider whitespace-nowrap text-left'
 
-// Cumulative bands are 20/20/30/30 (Level0-3), each rendered as its own
-// segment of the bar so the level boundaries are visible at a glance.
-const LEVEL_BANDS = [
-  { start: 0,  end: 20,  color: 'bg-eve-green' },
-  { start: 20, end: 40,  color: 'bg-eve-amber' },
-  { start: 40, end: 70,  color: 'bg-eve-red' },
-  { start: 70, end: 100, color: 'bg-eve-red' },
-]
+// Cumulative floor for Level0-4 — a level's point span divided by 5 (points
+// per 24h, confirmed fixed rate) gives its segment count, so each segment
+// always represents exactly one day: 4 segments for Level0/1 (20 pts), 6 for
+// Level2/3 (30 pts).
+const LEVEL_CUM = [0, 20, 40, 70, 100]
+
+function levelIndex(level: string): number {
+  return parseInt(level.replace('Level', ''), 10) || 0
+}
+
+// Anarchy meter goes from green to yellow once it passes 15/20 within
+// Level0 (also the point MTOs start spawning), orange for Level1, red from
+// Level2 up — confirmed by the user, not documented by CCP.
+function anarchyBarColor(level: string, amount: number): string {
+  const idx = levelIndex(level)
+  if (idx <= 0) return amount >= 15 ? 'bg-eve-yellow' : 'bg-eve-green'
+  if (idx === 1) return 'bg-eve-amber'
+  return 'bg-eve-red'
+}
 
 function Meter({
-  label, level, amount, nextThreshold, nextLevelAt,
-}: { label: string; level: string; amount: number; nextThreshold: number; nextLevelAt: string | null }) {
+  label, level, amount, nextThreshold, nextLevelAt, barColor = 'bg-accent',
+}: {
+  label: string
+  level: string
+  amount: number
+  nextThreshold: number
+  nextLevelAt: string | null
+  barColor?: string
+}) {
+  const idx = levelIndex(level)
+  const levelStart = LEVEL_CUM[idx] ?? nextThreshold
+  const levelSpan = Math.max(0, nextThreshold - levelStart)
+  const segmentCount = levelSpan > 0 ? Math.round(levelSpan / 5) : 1
+  const progress = Math.max(0, Math.min(levelSpan, amount - levelStart))
+
   return (
     <div className="min-w-[120px]">
       <div className="flex items-center justify-between text-[10px] text-muted mb-0.5">
@@ -106,12 +149,13 @@ function Meter({
         <span>{level.replace('Level', 'L')} · {amount}/{nextThreshold}</span>
       </div>
       <div className="flex h-1.5 rounded-full overflow-hidden gap-px">
-        {LEVEL_BANDS.map((band, i) => {
-          const width = band.end - band.start
-          const fillPct = Math.max(0, Math.min(1, (amount - band.start) / width)) * 100
+        {Array.from({ length: segmentCount }).map((_, i) => {
+          const fillPct = levelSpan > 0
+            ? Math.max(0, Math.min(1, (progress - i * 5) / 5)) * 100
+            : 100
           return (
-            <div key={i} className="bg-wire" style={{ width: `${width}%` }}>
-              <div className={`h-full ${band.color}`} style={{ width: `${fillPct}%` }} />
+            <div key={i} className="flex-1 bg-wire">
+              <div className={`h-full ${barColor}`} style={{ width: `${fillPct}%` }} />
             </div>
           )
         })}
@@ -132,6 +176,9 @@ export function MercenaryClient() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const [editingDeployId, setEditingDeployId] = useState<number | null>(null)
+  const [deployValue, setDeployValue] = useState('')
+  const [deploySaving, setDeploySaving] = useState(false)
 
   const { setActions } = useTopbarActions()
 
@@ -166,6 +213,39 @@ export function MercenaryClient() {
       setSyncing(false)
     }
   }, [load])
+
+  const startEditDeploy = useCallback((den: MercenaryDen) => {
+    setEditingDeployId(den.id)
+    setDeployValue(toLocalInputValue(den.deployed_at ?? new Date().toISOString()))
+  }, [])
+
+  const cancelEditDeploy = useCallback(() => setEditingDeployId(null), [])
+
+  const submitDeploy = useCallback(async (denId: number, value: string | null) => {
+    setDeploySaving(true)
+    try {
+      const r = await fetch(`/api/mercenary/dens/${denId}/deployed-at`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deployed_at: value }),
+      })
+      if (!r.ok) throw new Error()
+      await load()
+      setEditingDeployId(null)
+    } catch {
+      setSyncError('Failed to update deployment time.')
+      setTimeout(() => setSyncError(null), 10000)
+    } finally {
+      setDeploySaving(false)
+    }
+  }, [load])
+
+  const saveDeploy = useCallback((denId: number) => {
+    if (!deployValue) return
+    submitDeploy(denId, new Date(deployValue).toISOString())
+  }, [deployValue, submitDeploy])
+
+  const clearDeploy = useCallback((denId: number) => submitDeploy(denId, null), [submitDeploy])
 
   useEffect(() => {
     setActions(
@@ -208,8 +288,52 @@ export function MercenaryClient() {
                 <div className="text-[11px] text-muted truncate">
                   {d.character_name} · {d.planet_name ?? `Planet ${d.planet_id}`}
                 </div>
+                <div className="text-[11px] text-faint flex items-center gap-2">
+                  {d.deployed_at ? (
+                    <>
+                      <span>Deployed {fmtElapsed(d.deployed_at)} ago</span>
+                      <button onClick={() => startEditDeploy(d)} className="text-faint hover:text-accent underline decoration-dotted">edit</button>
+                    </>
+                  ) : (
+                    <button onClick={() => startEditDeploy(d)} className="text-accent hover:underline">Set deployment time</button>
+                  )}
+                </div>
+                {editingDeployId === d.id && (
+                  <div className="flex items-center gap-1 text-[11px]">
+                    <input
+                      type="datetime-local"
+                      value={deployValue}
+                      onChange={e => setDeployValue(e.target.value)}
+                      className="bg-surface border border-wire rounded px-1 py-0.5 text-[11px] text-primary"
+                    />
+                    <button
+                      onClick={() => saveDeploy(d.id)}
+                      disabled={deploySaving}
+                      className="px-1.5 py-0.5 border border-accent text-accent rounded hover:bg-accent hover:text-canvas disabled:opacity-40"
+                    >
+                      Save
+                    </button>
+                    {d.deployed_at && (
+                      <button
+                        onClick={() => clearDeploy(d.id)}
+                        disabled={deploySaving}
+                        className="px-1.5 py-0.5 border border-wire text-faint rounded hover:text-eve-red hover:border-eve-red/40 disabled:opacity-40"
+                      >
+                        Clear
+                      </button>
+                    )}
+                    <button onClick={cancelEditDeploy} className="px-1.5 py-0.5 text-faint hover:text-secondary">Cancel</button>
+                  </div>
+                )}
                 <Meter label="Development" level={d.development_level} amount={d.development_amount} nextThreshold={d.development_next_threshold} nextLevelAt={d.development_next_level_at} />
-                <Meter label="Anarchy" level={d.anarchy_level} amount={d.anarchy_amount} nextThreshold={d.anarchy_next_threshold} nextLevelAt={d.anarchy_next_level_at} />
+                <Meter
+                  label="Anarchy"
+                  level={d.anarchy_level}
+                  amount={d.anarchy_amount}
+                  nextThreshold={d.anarchy_next_threshold}
+                  nextLevelAt={d.anarchy_next_level_at}
+                  barColor={anarchyBarColor(d.anarchy_level, d.anarchy_amount)}
+                />
                 <div className="text-[11px] text-muted">
                   Infomorphs: <span className="text-secondary font-mono">{d.infomorphs}</span>
                   {d.infomorphs_rate_min != null && (
@@ -222,6 +346,8 @@ export function MercenaryClient() {
                       MTO {d.active_operation.state.toLowerCase()} — {d.active_operation.dungeon_name ?? `Type ${d.active_operation.dungeon_type_id}`},
                       {' '}expires in {fmtRemaining(d.active_operation.expires)}
                     </span>
+                  ) : d.mto_locked ? (
+                    <span className="text-faint">MTOs unlock once Anarchy reaches 15/20</span>
                   ) : d.next_mto_estimate_at ? (
                     <span className="text-faint">Next MTO (est.): ~{fmtRemaining(d.next_mto_estimate_at)}</span>
                   ) : (

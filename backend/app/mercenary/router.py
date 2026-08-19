@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,9 +15,14 @@ router = APIRouter(prefix="/mercenary", dependencies=[Depends(get_current_charac
 
 # Development/anarchy bands are 20/20/30/30 (cumulative thresholds 20-40-70-100)
 # and both rise at a fixed 5 points per 24 hours — confirmed by the user, not
-# documented by CCP anywhere public.
+# documented by CCP anywhere public. Both meters start accumulating together
+# from the den's deployment time.
 _LEVEL_THRESHOLDS = [20, 40, 70, 100]
 _LEVEL_RATE_PER_HOUR = 5 / 24
+
+# MTOs don't start spawning until the den's Anarchy meter passes 15/20 within
+# Level0 — confirmed by the user, not documented by CCP.
+_MTO_UNLOCK_ANARCHY_AMOUNT = 15
 
 # Infomorph generation rate depends on development level (confirmed by the
 # user; not in any public ESI/wiki documentation). Shown as a range since
@@ -52,6 +58,33 @@ def _estimate_next_level(current_level: str, current_amount: int) -> datetime | 
         return None
     hours_needed = (threshold - current_amount) / _LEVEL_RATE_PER_HOUR
     return datetime.now(timezone.utc) + timedelta(hours=hours_needed)
+
+
+def _level_for_amount(amount: int) -> str:
+    for i, threshold in enumerate(_LEVEL_THRESHOLDS):
+        if amount < threshold:
+            return f"Level{i}"
+    return f"Level{len(_LEVEL_THRESHOLDS)}"
+
+
+def _effective_amount(deployed_at: datetime | None, esi_amount: int) -> int:
+    """When a deployment time has been set, both meters are computed from the
+    confirmed fixed rate rather than the last-polled ESI amount, which only
+    updates once per 5-minute poll. Falls back to the ESI-reported amount
+    when no deployment time has been recorded yet."""
+    if deployed_at is None:
+        return esi_amount
+    hours = (datetime.now(timezone.utc) - deployed_at).total_seconds() / 3600
+    if hours < 0:
+        return esi_amount
+    return min(100, int(hours * _LEVEL_RATE_PER_HOUR))
+
+
+def _mto_unlocked(anarchy_level: str, anarchy_amount: int) -> bool:
+    idx = _level_index(anarchy_level)
+    if idx is None or idx > 0:
+        return True
+    return anarchy_amount >= _MTO_UNLOCK_ANARCHY_AMOUNT
 
 
 async def _mto_status(session: AsyncSession, den_id: int) -> tuple[dict | None, str | None]:
@@ -104,10 +137,22 @@ async def list_dens():
 
         result = []
         for d in dens:
-            development_eta = _estimate_next_level(d.development_level, d.development_amount)
-            anarchy_eta = _estimate_next_level(d.anarchy_level, d.anarchy_amount)
-            infomorph_rate_range = _INFOMORPH_RATE_BY_LEVEL.get(d.development_level)
+            development_amount = _effective_amount(d.deployed_at, d.development_amount)
+            anarchy_amount = _effective_amount(d.deployed_at, d.anarchy_amount)
+            if d.deployed_at:
+                development_level = _level_for_amount(development_amount)
+                anarchy_level = _level_for_amount(anarchy_amount)
+            else:
+                development_level = d.development_level
+                anarchy_level = d.anarchy_level
+
+            development_eta = _estimate_next_level(development_level, development_amount)
+            anarchy_eta = _estimate_next_level(anarchy_level, anarchy_amount)
+            infomorph_rate_range = _INFOMORPH_RATE_BY_LEVEL.get(development_level)
             active_op, next_mto_estimate = await _mto_status(session, d.den_id)
+            mto_locked = not active_op and not _mto_unlocked(anarchy_level, anarchy_amount)
+            if mto_locked:
+                next_mto_estimate = None
 
             result.append({
                 "id": d.id,
@@ -119,13 +164,14 @@ async def list_dens():
                 "type_id": d.type_id,
                 "type_name": type_id_names.get(d.type_id),
                 "state": d.state,
-                "development_level": d.development_level,
-                "development_amount": d.development_amount,
-                "development_next_threshold": _next_level_threshold(d.development_level) or 100,
+                "deployed_at": d.deployed_at.isoformat() if d.deployed_at else None,
+                "development_level": development_level,
+                "development_amount": development_amount,
+                "development_next_threshold": _next_level_threshold(development_level) or 100,
                 "development_next_level_at": development_eta.isoformat() if development_eta else None,
-                "anarchy_level": d.anarchy_level,
-                "anarchy_amount": d.anarchy_amount,
-                "anarchy_next_threshold": _next_level_threshold(d.anarchy_level) or 100,
+                "anarchy_level": anarchy_level,
+                "anarchy_amount": anarchy_amount,
+                "anarchy_next_threshold": _next_level_threshold(anarchy_level) or 100,
                 "anarchy_next_level_at": anarchy_eta.isoformat() if anarchy_eta else None,
                 "infomorphs": d.infomorphs,
                 "infomorphs_rate_min": infomorph_rate_range[0] if infomorph_rate_range else None,
@@ -138,6 +184,7 @@ async def list_dens():
                 "skyhook_corporation_name": corp_names.get(d.skyhook_corporation_id) if d.skyhook_corporation_id else None,
                 "active_operation": active_op,
                 "next_mto_estimate_at": next_mto_estimate,
+                "mto_locked": mto_locked,
                 "last_synced": d.last_synced.isoformat(),
             })
 
@@ -149,6 +196,21 @@ async def list_dens():
 
     result.sort(key=lambda x: x["character_name"] or "")
     return result
+
+
+class SetDeployedAtRequest(BaseModel):
+    deployed_at: datetime | None = None
+
+
+@router.patch("/dens/{den_pk}/deployed-at")
+async def set_deployed_at(den_pk: int, body: SetDeployedAtRequest):
+    async with AsyncSessionLocal() as session:
+        den = await session.get(MercenaryDen, den_pk)
+        if not den:
+            raise HTTPException(404, "Den not found")
+        den.deployed_at = body.deployed_at
+        await session.commit()
+    return {"ok": True}
 
 
 @router.get("/operations")

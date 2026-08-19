@@ -397,6 +397,7 @@ class MercenaryDen(Base):
     anarchy_amount: Mapped[int] = mapped_column(Integer, nullable=False)
     infomorphs: Mapped[int] = mapped_column(Integer, nullable=False)
     reinforced_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    deployed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
     skyhook_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     skyhook_planet_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
