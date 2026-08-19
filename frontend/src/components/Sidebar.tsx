@@ -11,25 +11,6 @@ interface User {
   portrait_url: string
 }
 
-function HexLogo() {
-  return (
-    <svg width="26" height="30" viewBox="0 0 26 30" fill="none">
-      <path
-        d="M13 1.5L24.5 8V22L13 28.5L1.5 22V8L13 1.5Z"
-        fill="var(--accent)"
-        fillOpacity="0.12"
-        stroke="var(--accent)"
-        strokeWidth="1.5"
-      />
-      <path
-        d="M13 8.5L19.5 12.25V19.75L13 23.5L6.5 19.75V12.25L13 8.5Z"
-        fill="var(--accent)"
-      />
-    </svg>
-  )
-}
-
-
 const NAV = [
   {
     items: [{ label: 'Dashboard', href: '/' }],
@@ -40,7 +21,7 @@ const NAV = [
       { label: 'Doctrines', href: '/availability' },
       { label: 'Fits', href: '/fits' },
       { label: 'Items', href: '/items' },
-      { label: 'Import Recs', href: '/import-recommendations' },
+      { label: 'Shopping', href: '/import-recommendations' },
     ],
   },
   {
@@ -86,7 +67,7 @@ export function Sidebar({ user }: { user: User }) {
     <aside className="w-[180px] flex-shrink-0 h-full bg-surface border-r border-wire flex flex-col">
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-4 py-5 border-b border-wire">
-        <HexLogo />
+        <Image src="/logo.png" alt="" width={30} height={30} className="flex-shrink-0" />
         <div className="leading-tight">
           <div className="text-[10px] font-bold tracking-[0.12em] text-primary uppercase">
             Einharjar
