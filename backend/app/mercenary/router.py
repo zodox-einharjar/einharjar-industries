@@ -87,6 +87,13 @@ def _mto_unlocked(anarchy_level: str, anarchy_amount: int) -> bool:
     return anarchy_amount >= _MTO_UNLOCK_ANARCHY_AMOUNT
 
 
+def _estimate_mto_unlock(anarchy_level: str, anarchy_amount: int) -> datetime | None:
+    if _mto_unlocked(anarchy_level, anarchy_amount):
+        return None
+    hours_needed = (_MTO_UNLOCK_ANARCHY_AMOUNT - anarchy_amount) / _LEVEL_RATE_PER_HOUR
+    return datetime.now(timezone.utc) + timedelta(hours=hours_needed)
+
+
 async def _mto_status(session: AsyncSession, den_id: int) -> tuple[dict | None, str | None]:
     """Returns (active_operation, next_mto_estimate_iso). The estimate is
     only populated once at least two past spawns have been observed for this
@@ -151,6 +158,7 @@ async def list_dens():
             infomorph_rate_range = _INFOMORPH_RATE_BY_LEVEL.get(development_level)
             active_op, next_mto_estimate = await _mto_status(session, d.den_id)
             mto_locked = not active_op and not _mto_unlocked(anarchy_level, anarchy_amount)
+            mto_unlock_at = _estimate_mto_unlock(anarchy_level, anarchy_amount) if mto_locked else None
             if mto_locked:
                 next_mto_estimate = None
 
@@ -185,6 +193,7 @@ async def list_dens():
                 "active_operation": active_op,
                 "next_mto_estimate_at": next_mto_estimate,
                 "mto_locked": mto_locked,
+                "mto_unlock_at": mto_unlock_at.isoformat() if mto_unlock_at else None,
                 "last_synced": d.last_synced.isoformat(),
             })
 

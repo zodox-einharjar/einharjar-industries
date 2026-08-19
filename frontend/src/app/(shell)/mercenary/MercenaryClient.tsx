@@ -42,6 +42,7 @@ interface MercenaryDen {
   active_operation: ActiveOperation | null
   next_mto_estimate_at: string | null
   mto_locked: boolean
+  mto_unlock_at: string | null
   last_synced: string
 }
 
@@ -83,10 +84,19 @@ function fmtElapsed(iso: string): string {
   return `${mins}m`
 }
 
-function toLocalInputValue(iso: string): string {
+// EVE time is UTC — the deployment input is edited and displayed in EVE
+// time, not the browser's local timezone.
+function toEveInputValue(iso: string): string {
   const d = new Date(iso)
   const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+}
+
+function eveInputValueToIso(value: string): string {
+  const [datePart, timePart] = value.split('T')
+  const [y, m, d] = datePart.split('-').map(Number)
+  const [hh, mm] = timePart.split(':').map(Number)
+  return new Date(Date.UTC(y, m - 1, d, hh, mm)).toISOString()
 }
 
 const DEN_STATE_COLORS: Record<string, string> = {
@@ -216,7 +226,7 @@ export function MercenaryClient() {
 
   const startEditDeploy = useCallback((den: MercenaryDen) => {
     setEditingDeployId(den.id)
-    setDeployValue(toLocalInputValue(den.deployed_at ?? new Date().toISOString()))
+    setDeployValue(toEveInputValue(den.deployed_at ?? new Date().toISOString()))
   }, [])
 
   const cancelEditDeploy = useCallback(() => setEditingDeployId(null), [])
@@ -242,7 +252,7 @@ export function MercenaryClient() {
 
   const saveDeploy = useCallback((denId: number) => {
     if (!deployValue) return
-    submitDeploy(denId, new Date(deployValue).toISOString())
+    submitDeploy(denId, eveInputValueToIso(deployValue))
   }, [deployValue, submitDeploy])
 
   const clearDeploy = useCallback((denId: number) => submitDeploy(denId, null), [submitDeploy])
@@ -306,6 +316,7 @@ export function MercenaryClient() {
                       onChange={e => setDeployValue(e.target.value)}
                       className="bg-surface border border-wire rounded px-1 py-0.5 text-[11px] text-primary"
                     />
+                    <span className="text-faint">EVE time</span>
                     <button
                       onClick={() => saveDeploy(d.id)}
                       disabled={deploySaving}
@@ -347,7 +358,9 @@ export function MercenaryClient() {
                       {' '}expires in {fmtRemaining(d.active_operation.expires)}
                     </span>
                   ) : d.mto_locked ? (
-                    <span className="text-faint">MTOs unlock once Anarchy reaches 15/20</span>
+                    <span className="text-faint">
+                      {d.mto_unlock_at ? `MTOs unlock in ~${fmtRemaining(d.mto_unlock_at)}` : 'MTOs unlock once Anarchy reaches 15/20'}
+                    </span>
                   ) : d.next_mto_estimate_at ? (
                     <span className="text-faint">Next MTO (est.): ~{fmtRemaining(d.next_mto_estimate_at)}</span>
                   ) : (
