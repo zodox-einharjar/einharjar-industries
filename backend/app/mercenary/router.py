@@ -15,8 +15,9 @@ router = APIRouter(prefix="/mercenary", dependencies=[Depends(get_current_charac
 
 # Development/anarchy bands are 20/20/30/30 (cumulative thresholds 20-40-70-100)
 # and both rise at a fixed 5 points per 24 hours — confirmed by the user, not
-# documented by CCP anywhere public. Both meters start accumulating together
-# from the den's deployment time.
+# documented by CCP anywhere public. Used only to project ETAs forward from
+# the last-synced ESI amount; the displayed level/amount themselves always
+# come straight from ESI.
 _LEVEL_THRESHOLDS = [20, 40, 70, 100]
 _LEVEL_RATE_PER_HOUR = 5 / 24
 
@@ -58,26 +59,6 @@ def _estimate_next_level(current_level: str, current_amount: int) -> datetime | 
         return None
     hours_needed = (threshold - current_amount) / _LEVEL_RATE_PER_HOUR
     return datetime.now(timezone.utc) + timedelta(hours=hours_needed)
-
-
-def _level_for_amount(amount: int) -> str:
-    for i, threshold in enumerate(_LEVEL_THRESHOLDS):
-        if amount < threshold:
-            return f"Level{i}"
-    return f"Level{len(_LEVEL_THRESHOLDS)}"
-
-
-def _effective_amount(deployed_at: datetime | None, esi_amount: int) -> int:
-    """When a deployment time has been set, both meters are computed from the
-    confirmed fixed rate rather than the last-polled ESI amount, which only
-    updates once per 5-minute poll. Falls back to the ESI-reported amount
-    when no deployment time has been recorded yet."""
-    if deployed_at is None:
-        return esi_amount
-    hours = (datetime.now(timezone.utc) - deployed_at).total_seconds() / 3600
-    if hours < 0:
-        return esi_amount
-    return min(100, int(hours * _LEVEL_RATE_PER_HOUR))
 
 
 def _mto_unlocked(anarchy_level: str, anarchy_amount: int) -> bool:
@@ -144,14 +125,10 @@ async def list_dens():
 
         result = []
         for d in dens:
-            development_amount = _effective_amount(d.deployed_at, d.development_amount)
-            anarchy_amount = _effective_amount(d.deployed_at, d.anarchy_amount)
-            if d.deployed_at:
-                development_level = _level_for_amount(development_amount)
-                anarchy_level = _level_for_amount(anarchy_amount)
-            else:
-                development_level = d.development_level
-                anarchy_level = d.anarchy_level
+            development_amount = d.development_amount
+            anarchy_amount = d.anarchy_amount
+            development_level = d.development_level
+            anarchy_level = d.anarchy_level
 
             development_eta = _estimate_next_level(development_level, development_amount)
             anarchy_eta = _estimate_next_level(anarchy_level, anarchy_amount)
@@ -232,6 +209,7 @@ async def list_operations():
     char_name_by_id = {c.id: c.character_name for c in all_chars}
     den_by_id = {d.den_id: d for d in dens}
     dungeon_names = type_names(list({op.dungeon_type_id for op in operations}))
+    planet_names = await esi.resolve_planet_names(list({d.planet_id for d in dens}))
 
     result = []
     for op in operations:
@@ -243,6 +221,7 @@ async def list_operations():
             "character_name": char_name_by_id.get(op.character_id),
             "den_id": op.den_id,
             "den_planet_id": den.planet_id if den else None,
+            "den_planet_name": planet_names.get(den.planet_id) if den else None,
             "dungeon_type_id": op.dungeon_type_id,
             "dungeon_name": dungeon_names.get(op.dungeon_type_id),
             "state": op.state,

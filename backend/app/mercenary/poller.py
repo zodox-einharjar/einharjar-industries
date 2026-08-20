@@ -75,22 +75,25 @@ async def _poll_char_dens(char_id: int) -> dict:
             row.den_id: (row.development_level, row.anarchy_level) for row in existing
         }
 
+        planet_names = await esi.resolve_planet_names([d["planet_id"] for d in dens])
+
         level_up_messages: list[str] = []
         for d in dens:
             new_dev_level = d["evolution"]["development"]["level"]
             new_anarchy_level = d["evolution"]["anarchy"]["level"]
+            where = planet_names.get(d["planet_id"], f"planet {d['planet_id']}")
             old = old_levels_by_den_id.get(d["id"])
             if old:
                 old_dev_level, old_anarchy_level = old
                 if _level_num(new_dev_level) > _level_num(old_dev_level):
                     level_up_messages.append(
-                        f"**Development level up** — {char.character_name}'s den on planet "
-                        f"{d['planet_id']} reached {new_dev_level.replace('Level', 'L')}"
+                        f"**Development level up** — {char.character_name}'s den on "
+                        f"{where} reached {new_dev_level.replace('Level', 'L')}"
                     )
                 if _level_num(new_anarchy_level) > _level_num(old_anarchy_level):
                     level_up_messages.append(
-                        f"**Anarchy level up** — {char.character_name}'s den on planet "
-                        f"{d['planet_id']} reached {new_anarchy_level.replace('Level', 'L')}"
+                        f"**Anarchy level up** — {char.character_name}'s den on "
+                        f"{where} reached {new_anarchy_level.replace('Level', 'L')}"
                     )
 
         for d in dens:
@@ -194,8 +197,9 @@ async def _poll_char_mtos(char_id: int) -> dict:
                 )
             )).all()
             planet_by_den_id = {row.den_id: row.planet_id for row in den_rows}
+            planet_names = await esi.resolve_planet_names(list(planet_by_den_id.values()))
             dungeon_names = type_names([op["dungeon_type_id"] for op in newly_active])
-            active_msg_context = {"planets": planet_by_den_id, "dungeons": dungeon_names}
+            active_msg_context = {"planets": planet_by_den_id, "planet_names": planet_names, "dungeons": dungeon_names}
 
         for op in operations:
             stmt = pg_insert(MercenaryOperation).values(
@@ -226,7 +230,10 @@ async def _poll_char_mtos(char_id: int) -> dict:
         for op in newly_active:
             planet_id = active_msg_context["planets"].get(op["mercenary_den_id"])
             dungeon_name = active_msg_context["dungeons"].get(op["dungeon_type_id"]) or f"type {op['dungeon_type_id']}"
-            where = f"planet {planet_id}" if planet_id else f"den {op['mercenary_den_id']}"
+            if planet_id:
+                where = active_msg_context["planet_names"].get(planet_id, f"planet {planet_id}")
+            else:
+                where = f"den {op['mercenary_den_id']}"
             await notifier.notify(
                 f"**MTO active** — {char.character_name}'s den on {where}: {dungeon_name} ({op['state']})"
             )
@@ -297,7 +304,9 @@ async def _notify_mercenary_events() -> None:
             )
             label = _ALERT_LABELS.get(note.type, note.type)
             if len(dens) == 1:
-                message = f"**Mercenary den {label}** — {char_name}'s den on planet {dens[0].planet_id}"
+                planet_names = await esi.resolve_planet_names([dens[0].planet_id])
+                where = planet_names.get(dens[0].planet_id, f"planet {dens[0].planet_id}")
+                message = f"**Mercenary den {label}** — {char_name}'s den on {where}"
             else:
                 message = f"**Mercenary den {label}** — one of {char_name}'s dens (check the dashboard for which one)"
 

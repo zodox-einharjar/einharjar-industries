@@ -53,6 +53,7 @@ interface MercenaryOperation {
   character_name: string | null
   den_id: number
   den_planet_id: number | null
+  den_planet_name: string | null
   dungeon_type_id: number
   dungeon_name: string | null
   state: string
@@ -185,6 +186,7 @@ export function MercenaryClient() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
+  const [syncMessage, setSyncMessage] = useState<{ text: string; ok: boolean } | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [editingDeployId, setEditingDeployId] = useState<number | null>(null)
   const [deployValue, setDeployValue] = useState('')
@@ -211,16 +213,17 @@ export function MercenaryClient() {
   useEffect(() => { load() }, [load])
 
   const syncNow = useCallback(async () => {
-    setSyncing(true); setSyncError(null)
+    setSyncing(true); setSyncMessage(null)
     try {
       const r = await fetch('/api/mercenary/sync', { method: 'POST' })
       if (!r.ok) throw new Error()
       await load()
+      setSyncMessage({ text: 'Synced', ok: true })
     } catch {
-      setSyncError('Sync failed — check Docker logs for details.')
-      setTimeout(() => setSyncError(null), 10000)
+      setSyncMessage({ text: 'Sync failed — check Docker logs for details.', ok: false })
     } finally {
       setSyncing(false)
+      setTimeout(() => setSyncMessage(null), 4000)
     }
   }, [load])
 
@@ -259,16 +262,23 @@ export function MercenaryClient() {
 
   useEffect(() => {
     setActions(
-      <button
-        onClick={syncNow}
-        disabled={syncing}
-        className="px-3 py-1 text-[12px] border border-accent text-accent hover:bg-accent hover:text-canvas rounded transition-colors disabled:opacity-40 disabled:pointer-events-none"
-      >
-        {syncing ? 'Syncing…' : 'Sync Now'}
-      </button>
+      <div className="flex items-center gap-2">
+        {syncMessage && (
+          <span className={`text-[12px] ${syncMessage.ok ? 'text-eve-green' : 'text-eve-red'}`}>
+            {syncMessage.text}
+          </span>
+        )}
+        <button
+          onClick={syncNow}
+          disabled={syncing}
+          className="px-3 py-1 text-[12px] border border-accent text-accent hover:bg-accent hover:text-canvas rounded transition-colors disabled:opacity-40 disabled:pointer-events-none"
+        >
+          {syncing ? 'Syncing…' : 'Sync Now'}
+        </button>
+      </div>
     )
     return () => setActions(null)
-  }, [setActions, syncing, syncNow])
+  }, [setActions, syncing, syncNow, syncMessage])
 
   if (loading)   return <p className="text-muted text-[13px] p-6">Loading…</p>
   if (loadError) return <p className="text-eve-red text-[13px] p-6">{loadError}</p>
@@ -401,7 +411,7 @@ export function MercenaryClient() {
                     <tr key={op.id} className="hover:bg-surface/50">
                       <td className={`${TD} text-secondary`}>{op.character_name}</td>
                       <td className={`${TD} text-muted`}>
-                        {op.den_planet_id ? `Planet ${op.den_planet_id}` : `Den ${op.den_id}`}
+                        {op.den_planet_name ?? (op.den_planet_id ? `Planet ${op.den_planet_id}` : `Den ${op.den_id}`)}
                       </td>
                       <td className={`${TD} text-primary`}>{op.dungeon_name ?? `Type ${op.dungeon_type_id}`}</td>
                       <td className={TD}>
