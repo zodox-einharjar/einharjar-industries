@@ -157,7 +157,7 @@ function Meter({
     <div className="min-w-[120px]">
       <div className="flex items-center justify-between text-[10px] text-muted mb-0.5">
         <span>{label}</span>
-        <span>{level.replace('Level', 'L')} · {amount}/{nextThreshold}</span>
+        <span>{level.replace('Level', 'L')} · {progress}/{levelSpan}</span>
       </div>
       <div className="flex h-1.5 rounded-full overflow-hidden gap-px">
         {Array.from({ length: segmentCount }).map((_, i) => {

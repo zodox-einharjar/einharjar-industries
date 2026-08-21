@@ -176,13 +176,23 @@ async def _poll_char_mtos(char_id: int) -> dict:
             return {"count": 0}
 
         now = datetime.now(timezone.utc)
+        seen_ids = [op["id"] for op in operations]
 
-        existing_ops = (await session.execute(
+        # The listing endpoint only returns currently-active operations, so
+        # a completed/expired op just disappears from it instead of coming
+        # back with a terminal state — without this, its DB row would stay
+        # stuck at Available/Started forever.
+        existing_active = (await session.execute(
             select(MercenaryOperation).where(
-                MercenaryOperation.operation_id.in_([op["id"] for op in operations])
+                MercenaryOperation.character_id == char.id,
+                MercenaryOperation.state.in_(_MTO_ACTIVE_STATES),
             )
         )).scalars().all()
-        old_state_by_op_id = {row.operation_id: row.state for row in existing_ops}
+        old_state_by_op_id = {row.operation_id: row.state for row in existing_active}
+        dropped = [row for row in existing_active if row.operation_id not in seen_ids]
+        for row in dropped:
+            row.state = "Expired" if row.expires <= now else "Completed"
+            row.last_synced = now
 
         newly_active = [
             op for op in operations
