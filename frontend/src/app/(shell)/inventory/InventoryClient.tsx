@@ -374,7 +374,7 @@ function WalletImport({ onClose, onImported }: { onClose: () => void; onImported
                     <td
                       className={`px-3 py-2 text-right font-medium ${STATUS_COLOR[row.status]}`}
                       title={row.status === 'unknown_station'
-                        ? `Not an NPC station, and no location named exactly "${row.station_name}" exists — add or rename one under Settings → Locations to match.`
+                        ? `Not an NPC station, and no location matches "${row.station_name}" — add a location for this system (or with this exact name) under Settings → Locations. For a player structure, setting its System ID is enough; the structure's own name can change without breaking the match.`
                         : undefined}
                     >
                       {STATUS_LABEL[row.status]}

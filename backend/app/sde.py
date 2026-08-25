@@ -267,6 +267,13 @@ def region_id_for_system(solar_system_id: int) -> int | None:
     return row["regionID"] if row else None
 
 
+def system_id_by_name(name: str) -> int | None:
+    row = get_sde().execute(
+        "SELECT solarSystemID FROM mapSolarSystems WHERE solarSystemName = ?", (name,)
+    ).fetchone()
+    return row["solarSystemID"] if row else None
+
+
 def resolve_region_id(eve_id: int, stored_region_id: int | None) -> int | None:
     """A Location's stored region_id is sometimes actually a solar system ID
     (structures resolved before a system_id was known). Re-derive the true

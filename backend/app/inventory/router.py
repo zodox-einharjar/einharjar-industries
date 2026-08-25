@@ -12,7 +12,7 @@ from ..auth.deps import get_current_character
 from ..db import AsyncSessionLocal
 from ..models import FreightRoute, IndustryProject, InventoryLot, InventorySale, InventoryTransfer, Location, LotReservation, MarketListing, MarketOrder
 from ..sde import (
-    station_by_name, type_id_by_name, type_volume,
+    station_by_name, system_id_by_name, type_id_by_name, type_volume,
     type_names, type_volumes, type_categories, system_name_for_station,
 )
 from .janice_parser import parse_janice_text
@@ -564,17 +564,38 @@ async def mark_sold(body: MarkSoldRequest):
 
 # ── Import JSON API ───────────────────────────────────────────────────────────
 
-async def _find_named_location(session, station_name: str) -> Location | None:
+async def _resolve_wallet_location(session, station_name: str) -> Location | None:
     """Fallback for player/corp structures: station_by_name only covers NPC stations
     (SDE staStations), so a wallet transaction's structure name (e.g. "RD-G2R -
-    RD-Set-Jump") never resolves there. If the user has already added that exact
-    structure under Settings > Locations, match it by name (case-insensitive) instead."""
+    RD-Set-Jump") never resolves there.
+
+    Tries, in order:
+    1. An exact (case-insensitive) match against an existing Location's name, for
+       anyone who wants per-structure granularity.
+    2. A match on the *system* alone — EVE's wallet paste format is always
+       "<System> - <Structure name>", and only the structure part changes when
+       someone renames it (which happens regularly for player structures), so
+       matching on the system is far more durable than the full string. If more
+       than one Location shares that system, the oldest one wins — arbitrary, but
+       stable, since this is a "good enough for tracking" match, not a precise one.
+    """
     name = station_name.strip()
     if not name:
         return None
-    return (await session.execute(
+
+    exact = (await session.execute(
         select(Location).where(func.lower(Location.name) == name.lower())
     )).scalar_one_or_none()
+    if exact:
+        return exact
+
+    system_name = name.split(" - ", 1)[0].strip()
+    system_id = system_id_by_name(system_name)
+    if system_id is None:
+        return None
+    return (await session.execute(
+        select(Location).where(Location.system_id == system_id).order_by(Location.id)
+    )).scalars().first()
 
 
 @router.post("/import-preview")
@@ -588,7 +609,7 @@ async def import_preview_json(body: ImportRequest):
         for row in buy_rows:
             tid = type_id_by_name(row.item_name)
             station = station_by_name(row.station_name)
-            loc = None if station else await _find_named_location(session, row.station_name)
+            loc = None if station else await _resolve_wallet_location(session, row.station_name)
             ok = tid is not None and (station is not None or loc is not None)
             if not ok:
                 status = "unknown_item" if tid is None else "unknown_station"
@@ -631,7 +652,7 @@ async def import_save_json(body: ImportRequest):
                     session.add(loc)
                     await session.flush()
             else:
-                loc = await _find_named_location(session, row.station_name)
+                loc = await _resolve_wallet_location(session, row.station_name)
 
             if tid is None or loc is None:
                 skipped += 1
