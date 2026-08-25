@@ -52,6 +52,54 @@ interface OptimizeResponse {
   mineral_unresolved: string[]
 }
 
+interface Location {
+  id: number
+  name: string
+}
+
+interface Candidate {
+  type_id: number
+  name: string
+  qty_available: number
+  unit_cost: number
+  portion_size: number
+}
+
+interface JobInput {
+  type_id: number
+  name: string
+  qty_requested: number
+  qty_consumed: number
+  qty_leftover: number
+  unit_cost: number
+  line_cost: number
+}
+
+interface JobOutput {
+  type_id: number
+  name: string
+  qty: number
+  reference_price: number
+  reference_value: number
+  value_share_pct: number
+  allocated_cost: number
+  unit_cost: number
+}
+
+interface JobResult {
+  ok: boolean
+  errors?: string[]
+  location_name?: string
+  inputs?: JobInput[]
+  outputs?: JobOutput[]
+  total_input_cost?: number
+  fee_pct?: number
+  fee_isk?: number
+  total_output_reference_value?: number
+  total_cost_to_allocate?: number
+  efficiency_pct?: number
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function iska(n: number | null | undefined): string {
@@ -110,9 +158,9 @@ const TH = 'px-3 py-2 text-[10px] text-muted font-semibold uppercase tracking-wi
 const BTN_SM = 'px-3 py-1 text-[12px] border border-wire text-muted hover:text-primary hover:border-secondary rounded transition-colors'
 const BTN_SM_PRIMARY = 'px-3 py-1 text-[12px] border border-accent text-accent hover:bg-accent hover:text-canvas rounded transition-colors disabled:opacity-40 disabled:pointer-events-none'
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Buy planner tab ──────────────────────────────────────────────────────────────
 
-export function ReprocessingClient() {
+function BuyPlannerTab() {
   const [step, setStep] = useState<'form' | 'results'>('form')
   const [mineralsText, setMineralsText] = useState('')
   const [supplyText, setSupplyText] = useState('')
@@ -381,6 +429,341 @@ export function ReprocessingClient() {
           {copied ? '✓ Copied' : 'Copy to Multibuy'}
         </button>
       </div>
+    </div>
+  )
+}
+
+// ── Reprocess inventory tab ───────────────────────────────────────────────────────
+
+function ReprocessInventoryTab() {
+  const [step, setStep] = useState<'select' | 'preview' | 'done'>('select')
+  const [locations, setLocations] = useState<Location[]>([])
+  const [locationId, setLocationId] = useState<number | ''>('')
+  const [candidates, setCandidates] = useState<Candidate[]>([])
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [qtyByType, setQtyByType] = useState<Record<number, number>>({})
+  const [efficiency, setEfficiency] = useState(90.63)
+  const [feePct, setFeePct] = useState(0)
+  const [result, setResult] = useState<JobResult | null>(null)
+  const [loadingCandidates, setLoadingCandidates] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/locations').then(r => r.ok ? r.json() : []).then(setLocations)
+    fetch('/api/settings')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.reprocessing_efficiency_pct) setEfficiency(d.reprocessing_efficiency_pct) })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!locationId) { setCandidates([]); setSelected(new Set()); setQtyByType({}); return }
+    setLoadingCandidates(true); setError(null)
+    fetch(`/api/reprocessing/inventory-candidates?location_id=${locationId}`)
+      .then(async r => { if (!r.ok) throw new Error(await errorMessage(r, 'Failed to load inventory')); return r.json() })
+      .then(d => {
+        setCandidates(d.candidates)
+        setQtyByType(Object.fromEntries(d.candidates.map((c: Candidate) => [c.type_id, c.qty_available])))
+        setSelected(new Set())
+      })
+      .catch(e => setError(e.message || 'Failed to load inventory'))
+      .finally(() => setLoadingCandidates(false))
+  }, [locationId])
+
+  function toggleSelect(type_id: number) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(type_id) ? next.delete(type_id) : next.add(type_id)
+      return next
+    })
+  }
+
+  function setQty(type_id: number, qty: number, max: number) {
+    setQtyByType(prev => ({ ...prev, [type_id]: Math.max(0, Math.min(qty, max)) }))
+  }
+
+  const selectedItems = candidates
+    .filter(c => selected.has(c.type_id) && (qtyByType[c.type_id] ?? 0) > 0)
+    .map(c => ({ type_id: c.type_id, qty: qtyByType[c.type_id] ?? 0 }))
+
+  async function handlePreview() {
+    if (!locationId || selectedItems.length === 0) return
+    setLoading(true); setError(null)
+    try {
+      const res = await fetch('/api/reprocessing/inventory-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ location_id: locationId, items: selectedItems, efficiency_pct: efficiency, fee_pct: feePct }),
+      })
+      if (!res.ok) throw new Error(await errorMessage(res, 'Preview failed'))
+      const data: JobResult = await res.json()
+      if (!data.ok) { setError((data.errors || []).join('; ')); return }
+      setResult(data)
+      setStep('preview')
+    } catch (e: any) {
+      setError(e.message || 'Failed to preview')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleConfirm() {
+    if (!locationId || selectedItems.length === 0) return
+    setLoading(true); setError(null)
+    try {
+      const res = await fetch('/api/reprocessing/inventory-confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ location_id: locationId, items: selectedItems, efficiency_pct: efficiency, fee_pct: feePct }),
+      })
+      if (!res.ok) throw new Error(await errorMessage(res, 'Confirm failed'))
+      const data: JobResult = await res.json()
+      setResult(data)
+      setStep('done')
+    } catch (e: any) {
+      setError(e.message || 'Failed to reprocess')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function reset() {
+    setResult(null); setStep('select'); setError(null)
+    setSelected(new Set())
+    fetch('/api/locations').then(r => r.ok ? r.json() : []).then(setLocations)
+  }
+
+  if (step === 'done' && result) return (
+    <div className="py-8 space-y-4 max-w-2xl">
+      <p className="text-[13px] text-eve-green">
+        Reprocessed — inventory updated at {result.location_name}.
+      </p>
+      <div className="border border-wire rounded overflow-x-auto">
+        <table className="w-full text-[12px]">
+          <thead className="bg-surface-hi border-b border-wire">
+            <tr>
+              <th className={`${TH} text-left`}>Mineral</th>
+              <th className={`${TH} text-right`}>Qty</th>
+              <th className={`${TH} text-right`}>Unit cost</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-wire">
+            {(result.outputs || []).map(o => (
+              <tr key={o.type_id}>
+                <td className={`${TD} text-primary`}>{o.name}</td>
+                <td className={`${TD} text-right font-mono text-eve-green`}>{o.qty.toLocaleString()}</td>
+                <td className={`${TD} text-right font-mono text-muted`}>{iska(o.unit_cost)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button onClick={reset} className={BTN_SM_PRIMARY}>Reprocess more</button>
+    </div>
+  )
+
+  if (step === 'preview' && result) return (
+    <div className="space-y-4">
+      {error && <p className="text-[12px] text-eve-red">{error}</p>}
+      <div className="flex items-center justify-between">
+        <div className="text-[13px] text-primary">
+          {result.location_name} · <span className="text-muted">{(result.efficiency_pct ?? 0).toFixed(2)}% efficiency</span>
+          {(result.fee_pct ?? 0) > 0 && <span className="text-muted"> · {result.fee_pct}% station fee ({iska(result.fee_isk)})</span>}
+        </div>
+        <button onClick={() => setStep('select')} className={BTN_SM}>← Back</button>
+      </div>
+
+      <div className="border border-wire rounded overflow-x-auto">
+        <table className="w-full text-[12px]">
+          <thead className="bg-surface-hi border-b border-wire">
+            <tr>
+              <th className={`${TH} text-left`}>Consuming</th>
+              <th className={`${TH} text-right`}>Qty</th>
+              <th className={`${TH} text-right`}>Leftover</th>
+              <th className={`${TH} text-right`}>Cost basis</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-wire">
+            {(result.inputs || []).map(i => (
+              <tr key={i.type_id}>
+                <td className={`${TD} text-primary`}>{i.name}</td>
+                <td className={`${TD} text-right font-mono text-secondary`}>{i.qty_consumed.toLocaleString()}</td>
+                <td className={`${TD} text-right font-mono text-muted`}>{i.qty_leftover > 0 ? i.qty_leftover.toLocaleString() : '—'}</td>
+                <td className={`${TD} text-right font-mono text-muted`}>{iska(i.line_cost)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="border-t border-wire">
+            <tr>
+              <td colSpan={3} className={`${TD} text-right text-muted`}>Input cost + fee</td>
+              <td className={`${TD} text-right font-mono text-primary`}>{iska(result.total_cost_to_allocate)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <p className="text-[11px] text-faint">
+        Output cost basis is the consumed items' cost plus the station fee, split across minerals
+        by each one's share of reference market value — not spread evenly per unit, so a rare
+        mineral doesn't end up priced the same as a common one.
+      </p>
+
+      <div className="border border-wire rounded overflow-x-auto">
+        <table className="w-full text-[12px]">
+          <thead className="bg-surface-hi border-b border-wire">
+            <tr>
+              <th className={`${TH} text-left`}>Producing</th>
+              <th className={`${TH} text-right`}>Qty</th>
+              <th className={`${TH} text-right`}>Value share</th>
+              <th className={`${TH} text-right`}>New unit cost</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-wire">
+            {(result.outputs || []).map(o => (
+              <tr key={o.type_id}>
+                <td className={`${TD} text-primary`}>{o.name}</td>
+                <td className={`${TD} text-right font-mono text-eve-green`}>{o.qty.toLocaleString()}</td>
+                <td className={`${TD} text-right font-mono text-muted`}>{o.value_share_pct.toFixed(1)}%</td>
+                <td className={`${TD} text-right font-mono font-semibold text-primary`}>{iska(o.unit_cost)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex justify-end">
+        <button onClick={handleConfirm} disabled={loading} className={BTN_SM_PRIMARY}>
+          {loading ? 'Reprocessing…' : 'Confirm & Update Inventory'}
+        </button>
+      </div>
+    </div>
+  )
+
+  // step === 'select'
+  return (
+    <div className="max-w-3xl space-y-4">
+      {error && <p className="text-[12px] text-eve-red">{error}</p>}
+
+      <div>
+        <label className="block text-[11px] text-muted mb-1.5">Location</label>
+        <select
+          value={locationId}
+          onChange={e => setLocationId(e.target.value ? Number(e.target.value) : '')}
+          className="w-full max-w-xs bg-canvas border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
+        >
+          <option value="">Select location…</option>
+          {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+        </select>
+      </div>
+
+      {locationId !== '' && (
+        loadingCandidates ? (
+          <p className="text-[12px] text-muted">Loading inventory…</p>
+        ) : candidates.length === 0 ? (
+          <div className="bg-surface border border-wire rounded p-8 text-center text-muted text-[13px]">
+            No reprocessable items in inventory at this location.
+          </div>
+        ) : (
+          <div className="border border-wire rounded overflow-x-auto">
+            <table className="w-full text-[12px]">
+              <thead className="bg-surface-hi border-b border-wire">
+                <tr>
+                  <th className={`${TH} w-8`}></th>
+                  <th className={`${TH} text-left`}>Item</th>
+                  <th className={`${TH} text-right`}>Available</th>
+                  <th className={`${TH} text-right`}>Qty to reprocess</th>
+                  <th className={`${TH} text-right`}>Cost basis</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-wire">
+                {candidates.map(c => (
+                  <tr key={c.type_id}>
+                    <td className="px-3 py-2">
+                      <input type="checkbox" checked={selected.has(c.type_id)} onChange={() => toggleSelect(c.type_id)} className="align-middle" />
+                    </td>
+                    <td className={`${TD} text-primary`}>{c.name}</td>
+                    <td className={`${TD} text-right font-mono text-secondary`}>{c.qty_available.toLocaleString()}</td>
+                    <td className={`${TD} text-right`}>
+                      <input
+                        type="number" min={0} max={c.qty_available} step={c.portion_size}
+                        value={qtyByType[c.type_id] ?? 0}
+                        onChange={e => setQty(c.type_id, Number(e.target.value), c.qty_available)}
+                        disabled={!selected.has(c.type_id)}
+                        className="w-28 bg-canvas border border-wire rounded px-2 py-1 text-[12px] text-right font-mono text-primary focus:outline-none focus:border-accent disabled:opacity-40"
+                      />
+                    </td>
+                    <td className={`${TD} text-right font-mono text-muted`}>{iska(c.unit_cost)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+
+      <div className="flex gap-3">
+        <div>
+          <label className="block text-[11px] text-muted mb-1.5">Reprocessing efficiency</label>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number" step="0.01" min="0" max="100"
+              value={efficiency}
+              onChange={e => setEfficiency(Number(e.target.value))}
+              className="w-24 bg-canvas border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
+            />
+            <span className="text-[13px] text-muted">%</span>
+          </div>
+        </div>
+        <div>
+          <label className="block text-[11px] text-muted mb-1.5">Station fee</label>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number" step="0.1" min="0" max="100"
+              value={feePct}
+              onChange={e => setFeePct(Number(e.target.value))}
+              className="w-24 bg-canvas border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
+            />
+            <span className="text-[13px] text-muted">% of output value</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <button onClick={handlePreview} disabled={selectedItems.length === 0 || loading} className={BTN_SM_PRIMARY}>
+          {loading ? 'Calculating…' : 'Preview output'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+type Mode = 'buy' | 'reprocess'
+
+export function ReprocessingClient() {
+  const [mode, setMode] = useState<Mode>('buy')
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1.5 border-b border-wire">
+        {([
+          { key: 'buy' as const, label: 'Buy Planner' },
+          { key: 'reprocess' as const, label: 'Reprocess Inventory' },
+        ]).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setMode(t.key)}
+            className={`px-3 py-2 text-[12px] border-b-2 -mb-px transition-colors ${
+              mode === t.key ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-secondary'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {mode === 'buy' ? <BuyPlannerTab /> : <ReprocessInventoryTab />}
     </div>
   )
 }
