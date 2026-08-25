@@ -233,7 +233,7 @@ interface PreviewResponse {
 const STATUS_LABEL: Record<PreviewRow['status'], string> = {
   ready:           'Ready',
   unknown_item:    'Unknown item',
-  unknown_station: 'Unknown station',
+  unknown_station: 'Unknown location',
 }
 const STATUS_COLOR: Record<PreviewRow['status'], string> = {
   ready:           'text-eve-green',
@@ -371,7 +371,12 @@ function WalletImport({ onClose, onImported }: { onClose: () => void; onImported
                     <td className="px-3 py-2 text-primary max-w-[200px] truncate" title={row.item_name}>{row.item_name}</td>
                     <td className="px-3 py-2 text-right font-mono text-secondary">{row.qty.toLocaleString()}</td>
                     <td className="px-3 py-2 text-right font-mono text-secondary">{iska(row.unit_price)}</td>
-                    <td className={`px-3 py-2 text-right font-medium ${STATUS_COLOR[row.status]}`}>
+                    <td
+                      className={`px-3 py-2 text-right font-medium ${STATUS_COLOR[row.status]}`}
+                      title={row.status === 'unknown_station'
+                        ? `Not an NPC station, and no location named exactly "${row.station_name}" exists — add or rename one under Settings → Locations to match.`
+                        : undefined}
+                    >
                       {STATUS_LABEL[row.status]}
                     </td>
                   </tr>

@@ -564,6 +564,19 @@ async def mark_sold(body: MarkSoldRequest):
 
 # ── Import JSON API ───────────────────────────────────────────────────────────
 
+async def _find_named_location(session, station_name: str) -> Location | None:
+    """Fallback for player/corp structures: station_by_name only covers NPC stations
+    (SDE staStations), so a wallet transaction's structure name (e.g. "RD-G2R -
+    RD-Set-Jump") never resolves there. If the user has already added that exact
+    structure under Settings > Locations, match it by name (case-insensitive) instead."""
+    name = station_name.strip()
+    if not name:
+        return None
+    return (await session.execute(
+        select(Location).where(func.lower(Location.name) == name.lower())
+    )).scalar_one_or_none()
+
+
 @router.post("/import-preview")
 async def import_preview_json(body: ImportRequest):
     rows, parse_errors = parse_wallet_text(body.text)
@@ -571,23 +584,25 @@ async def import_preview_json(body: ImportRequest):
     sell_count = sum(1 for r in rows if not r.is_buy)
 
     preview_rows = []
-    for row in buy_rows:
-        tid = type_id_by_name(row.item_name)
-        station = station_by_name(row.station_name)
-        ok = tid is not None and station is not None
-        if not ok:
-            status = "unknown_item" if tid is None else "unknown_station"
-        else:
-            status = "ready"
-        preview_rows.append({
-            "item_name": row.item_name,
-            "qty": row.qty,
-            "unit_price": float(row.unit_price),
-            "date_str": row.purchased_at.strftime("%Y-%m-%d %H:%M"),
-            "station_name": row.station_name,
-            "ok": ok,
-            "status": status,
-        })
+    async with AsyncSessionLocal() as session:
+        for row in buy_rows:
+            tid = type_id_by_name(row.item_name)
+            station = station_by_name(row.station_name)
+            loc = None if station else await _find_named_location(session, row.station_name)
+            ok = tid is not None and (station is not None or loc is not None)
+            if not ok:
+                status = "unknown_item" if tid is None else "unknown_station"
+            else:
+                status = "ready"
+            preview_rows.append({
+                "item_name": row.item_name,
+                "qty": row.qty,
+                "unit_price": float(row.unit_price),
+                "date_str": row.purchased_at.strftime("%Y-%m-%d %H:%M"),
+                "station_name": row.station_name,
+                "ok": ok,
+                "status": status,
+            })
 
     return {"rows": preview_rows, "errors": parse_errors, "sell_count": sell_count}
 
@@ -603,19 +618,24 @@ async def import_save_json(body: ImportRequest):
         for row in buy_rows:
             tid = type_id_by_name(row.item_name)
             station_info = station_by_name(row.station_name)
-            if tid is None or station_info is None:
+
+            loc = None
+            if station_info is not None:
+                station_id, region_id = station_info
+                loc = (await session.execute(
+                    select(Location).where(Location.eve_id == station_id)
+                )).scalar_one_or_none()
+                if loc is None:
+                    loc = Location(name=row.station_name, eve_id=station_id,
+                                   location_type="station", region_id=region_id)
+                    session.add(loc)
+                    await session.flush()
+            else:
+                loc = await _find_named_location(session, row.station_name)
+
+            if tid is None or loc is None:
                 skipped += 1
                 continue
-
-            station_id, region_id = station_info
-            loc = (await session.execute(
-                select(Location).where(Location.eve_id == station_id)
-            )).scalar_one_or_none()
-            if loc is None:
-                loc = Location(name=row.station_name, eve_id=station_id,
-                               location_type="station", region_id=region_id)
-                session.add(loc)
-                await session.flush()
 
             session.add(InventoryLot(
                 type_id=tid,
