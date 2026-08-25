@@ -39,6 +39,7 @@ class LocationCreate(_Base):
     system_id: int | None = None
 
 class LocationFeeUpdate(_Base):
+    name: str | None = None
     broker_fee_pct: float | None = None
     sales_tax_pct: float | None = None
     scc_surcharge_pct: float | None = None
@@ -202,6 +203,11 @@ async def update_location_fees(location_id: int, body: LocationFeeUpdate):
         loc = await session.get(Location, location_id)
         if not loc:
             raise HTTPException(404, "Location not found")
+        if body.name is not None:
+            name = body.name.strip()
+            if not name:
+                raise HTTPException(400, "Name cannot be empty")
+            loc.name = name
         if body.broker_fee_pct is not None:
             loc.broker_fee_pct = body.broker_fee_pct
         if body.sales_tax_pct is not None:

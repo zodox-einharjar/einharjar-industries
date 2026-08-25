@@ -76,6 +76,57 @@ function FeeCell({ locId, field, value, onSaved }: {
   )
 }
 
+function NameCell({ locId, value, onSaved }: {
+  locId: number
+  value: string
+  onSaved: (updated: Location) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    const trimmed = draft.trim()
+    if (!trimmed || trimmed === value) { setDraft(value); setEditing(false); return }
+    setSaving(true)
+    try {
+      const r = await fetch(`/api/locations/${locId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      })
+      if (r.ok) onSaved(await r.json())
+    } finally {
+      setSaving(false)
+      setEditing(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <span
+        onClick={() => { setDraft(value); setEditing(true) }}
+        className="text-primary font-medium cursor-pointer hover:text-accent transition-colors"
+        title="Click to edit"
+      >
+        {value}
+      </span>
+    )
+  }
+
+  return (
+    <input
+      autoFocus
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={save}
+      onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
+      disabled={saving}
+      className={`${INPUT} w-44`}
+    />
+  )
+}
+
 function IdCell({ locId, field, value, onSaved }: {
   locId: number
   field: 'region_id' | 'system_id'
@@ -220,7 +271,9 @@ export function LocationsTab() {
             )}
             {locs.map(loc => (
               <tr key={loc.id} className="border-t border-wire hover:bg-surface-hi">
-                <td className="px-4 py-3 text-primary font-medium">{loc.name}</td>
+                <td className="px-4 py-3">
+                  <NameCell locId={loc.id} value={loc.name} onSaved={handleFeeSaved} />
+                </td>
                 <td className="px-4 py-3">
                   <span className="text-[11px] px-1.5 py-0.5 rounded border border-wire text-muted">
                     {loc.location_type === 'station' ? 'Station' : 'Structure'}
@@ -255,7 +308,7 @@ export function LocationsTab() {
           </tbody>
         </table>
       </div>
-      <p className="text-[11px] text-faint mt-2">Click any fee value to edit it.</p>
+      <p className="text-[11px] text-faint mt-2">Click a name, ID, or fee value to edit it.</p>
 
       {/* Add form */}
       <div className="mt-6">
