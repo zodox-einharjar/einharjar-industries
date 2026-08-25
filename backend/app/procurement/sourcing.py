@@ -14,6 +14,8 @@ async def compute_project_sourcing(
     buyback_prices_by_type: dict[int, float],
     buyback_qty_by_type: dict[int, int],
     efficiency: float,
+    project_ids: list[int] | None = None,
+    ignore_inventory: bool = False,
 ) -> dict:
     """Joint least-cost sourcing plan for every outstanding project-material shortfall.
 
@@ -30,13 +32,16 @@ async def compute_project_sourcing(
     first so the largest need gets first claim on the cheapest shared supply. Local
     market depth needs no such sharing; it's already location-specific.
 
+    project_ids/ignore_inventory pass straight through to aggregate_project_needs() —
+    see there for what they do.
+
     Returns {"materials": [...], "items_to_buy": [...], "total_cost": float, "unmet": [...]}.
     Every items_to_buy entry carries a "channel" (buyback/local/jita) and, for
     local/jita, "location_id"/"location_name" — a caller can group by channel to get
     a buyback / local / Jita shopping list directly, with no re-merging or attribution
     guesswork needed.
     """
-    needs = await aggregate_project_needs(session)
+    needs = await aggregate_project_needs(session, project_ids, ignore_inventory)
     if not needs:
         return {"materials": [], "items_to_buy": [], "total_cost": 0.0, "unmet": []}
 

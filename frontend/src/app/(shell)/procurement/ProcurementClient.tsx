@@ -9,6 +9,12 @@ interface Location {
   name: string
 }
 
+interface ProjectOption {
+  id: number
+  name: string
+  status: string
+}
+
 interface DoctrineRef {
   doctrine_name: string
   fit_name: string
@@ -487,6 +493,9 @@ function ShoppingPlan({ items, channelSummary }: {
 export function ProcurementClient() {
   const [step, setStep] = useState<'form' | 'results'>('form')
   const [locations, setLocations] = useState<Location[]>([])
+  const [projects, setProjects] = useState<ProjectOption[]>([])
+  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<number>>(new Set())
+  const [ignoreInventory, setIgnoreInventory] = useState(false)
   const [text, setText] = useState('')
   const [wantListText, setWantListText] = useState('')
   const [locationId, setLocationId] = useState<number | ''>('')
@@ -506,8 +515,19 @@ export function ProcurementClient() {
 
   useEffect(() => {
     fetch('/api/locations').then(r => r.ok ? r.json() : []).then(setLocations)
+    fetch('/api/industry').then(r => r.ok ? r.json() : []).then((all: ProjectOption[]) => {
+      setProjects(all.filter(p => p.status === 'planning' || p.status === 'in_progress'))
+    })
     textareaRef.current?.focus()
   }, [])
+
+  function toggleProject(id: number) {
+    setSelectedProjectIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
 
   function handleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -562,7 +582,7 @@ export function ProcurementClient() {
   })
 
   async function handleEvaluate() {
-    if (!text.trim() || !locationId) return
+    if (!locationId) return
     setLoading(true); setError(null)
     try {
       const res = await fetch('/api/procurement/evaluate', {
@@ -571,6 +591,8 @@ export function ProcurementClient() {
         body: JSON.stringify({
           text: text.trim(), price_type: priceType, location_id: locationId,
           want_list_text: wantListText.trim(),
+          project_ids: Array.from(selectedProjectIds),
+          ignore_inventory: ignoreInventory,
         }),
       })
       if (!res.ok) throw new Error((await res.json()).detail || 'Evaluation failed')
@@ -605,18 +627,23 @@ export function ProcurementClient() {
   if (step === 'form') return (
     <div className="max-w-2xl space-y-4">
       {error && <p className="text-[12px] text-eve-red">{error}</p>}
-      <p className="text-[12px] text-muted">
-        In Janice, select all rows and copy. Paste the result below — the same format used for inventory import.<br />
-        Expected columns: <span className="text-faint font-mono">Name · Qty · Volume · Buy price · Sell price</span>
-      </p>
-      <textarea
-        ref={textareaRef}
-        value={text}
-        onChange={e => setText(e.target.value)}
-        rows={10}
-        placeholder={"Nitrogen Fuel Block\t10\t5.00\t17010.00\t17960.00"}
-        className="w-full bg-canvas border border-wire rounded px-3 py-2 text-[12px] font-mono text-primary placeholder:text-faint focus:outline-none focus:border-accent resize-none"
-      />
+      <div>
+        <label className="block text-[11px] text-muted mb-1.5">Buyback offer (optional)</label>
+        <p className="text-[12px] text-muted mb-1.5">
+          In Janice, select all rows and copy. Paste the result below — the same format used for inventory import.
+          Leave this blank to skip Doctrine/Project/Market Flip evaluation entirely and just compare local market
+          vs Jita for your projects' material shortfalls.<br />
+          Expected columns: <span className="text-faint font-mono">Name · Qty · Volume · Buy price · Sell price</span>
+        </p>
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={e => setText(e.target.value)}
+          rows={10}
+          placeholder={"Nitrogen Fuel Block\t10\t5.00\t17010.00\t17960.00"}
+          className="w-full bg-canvas border border-wire rounded px-3 py-2 text-[12px] font-mono text-primary placeholder:text-faint focus:outline-none focus:border-accent resize-none"
+        />
+      </div>
       <div>
         <label className="block text-[11px] text-muted mb-1.5">Items you personally need (optional)</label>
         <p className="text-[11px] text-faint mb-1.5">
@@ -630,6 +657,36 @@ export function ProcurementClient() {
           placeholder={"Tritanium\t500000\nPyerite\t120000"}
           className="w-full bg-canvas border border-wire rounded px-3 py-2 text-[12px] font-mono text-primary placeholder:text-faint focus:outline-none focus:border-accent resize-none"
         />
+      </div>
+      <div>
+        <label className="block text-[11px] text-muted mb-1.5">Project sourcing scope</label>
+        <p className="text-[11px] text-faint mb-1.5">
+          Which industry projects the Project Needs tab and sourcing plan cover — leave none selected for all
+          active projects.
+        </p>
+        {projects.length === 0 ? (
+          <p className="text-[11px] text-faint">No active projects.</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {projects.map(p => (
+              <button
+                key={p.id}
+                onClick={() => toggleProject(p.id)}
+                className={`px-2.5 py-1.5 text-[12px] rounded border transition-colors ${
+                  selectedProjectIds.has(p.id)
+                    ? 'border-accent text-accent bg-accent/10'
+                    : 'border-wire text-muted hover:text-secondary'
+                }`}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        )}
+        <label className="flex items-center gap-2 text-[12px] text-secondary cursor-pointer">
+          <input type="checkbox" checked={ignoreInventory} onChange={e => setIgnoreInventory(e.target.checked)} />
+          Buy all needed materials, ignoring what's already in inventory
+        </label>
       </div>
       <div className="flex gap-3">
         <div className="flex-1">
@@ -662,7 +719,7 @@ export function ProcurementClient() {
       <div className="flex justify-end">
         <button
           onClick={handleEvaluate}
-          disabled={!text.trim() || !locationId || loading}
+          disabled={!locationId || loading}
           className="px-3 py-1 text-[12px] border border-accent text-accent hover:bg-accent hover:text-canvas rounded transition-colors disabled:opacity-40 disabled:pointer-events-none"
         >
           {loading ? 'Evaluating…' : 'Evaluate'}

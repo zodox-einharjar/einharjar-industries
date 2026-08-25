@@ -21,10 +21,12 @@ _JITA_EVE_ID = 60003760
 
 
 class EvaluateRequest(_Base):
-    text: str
+    text: str = ""
     price_type: str  # "buy" | "sell" | "split"
     location_id: int
     want_list_text: str = ""
+    project_ids: list[int] | None = None
+    ignore_inventory: bool = False
 
 
 @router.post("/evaluate")
@@ -74,7 +76,7 @@ async def evaluate(body: EvaluateRequest):
         # item? Informational/priority flag only — not location-scoped, since the item is
         # already useful regardless of where the shortfall happens to be.
         shortfalls = await aggregate_shortfalls(session)
-        project_needs = await aggregate_project_needs(session)
+        project_needs = await aggregate_project_needs(session, body.project_ids, body.ignore_inventory)
         target_type_ids = set(type_ids)
         needed_by_type: dict[int, dict] = {}
         for (_staging_id, tid), acc in shortfalls.items():
@@ -163,6 +165,7 @@ async def evaluate(body: EvaluateRequest):
         buyback_qty_by_type = {i["type_id"]: i["qty"] for i in resolved}
         project_sourcing = await compute_project_sourcing(
             session, buyback_prices_by_type, buyback_qty_by_type, efficiency,
+            body.project_ids, body.ignore_inventory,
         )
 
         return {
