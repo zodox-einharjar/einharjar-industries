@@ -139,9 +139,12 @@ async def evaluate(body: EvaluateRequest):
         ]
 
         buyback_prices_by_type = {i["type_id"]: i["unit_price"] for i in resolved}
+        buyback_qty_by_type = {i["type_id"]: i["qty"] for i in resolved}
         settings_data = await _load_settings()
         efficiency = settings_data.get("reprocessing_efficiency_pct", 90.63) / 100.0
-        project_sourcing = await compute_project_sourcing(session, buyback_prices_by_type, efficiency)
+        project_sourcing = await compute_project_sourcing(
+            session, buyback_prices_by_type, buyback_qty_by_type, efficiency,
+        )
 
         return {
             "location_name": loc.name,

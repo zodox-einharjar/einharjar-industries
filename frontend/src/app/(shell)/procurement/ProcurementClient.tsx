@@ -53,28 +53,43 @@ interface UnmatchedWant {
   qty: number
 }
 
-interface SourcingCandidate {
-  channel: string
-  label: string
-  unit_cost: number
-  depth_insufficient: boolean
-}
-
-interface ProjectSourcingRow {
+interface SourcingMaterial {
   type_id: number
   name: string
   location_id: number
   location_name: string
   qty_needed: number
+  qty_covered: number
   projects: string[]
-  buyback_price: number | null
-  local_price: number | null
-  local_depth_insufficient: boolean
-  jita_landed_price: number | null
-  jita_depth_insufficient: boolean
-  compressed_options: SourcingCandidate[]
-  best: SourcingCandidate | null
-  total_cost_at_best: number | null
+}
+
+interface SourcingItemToBuy {
+  type_id: number
+  name: string
+  unit_price: number
+  qty: number
+  line_cost: number
+  channel: 'buyback' | 'local' | 'jita'
+  location_id?: number
+  location_name?: string
+  contributes_to: string[]
+}
+
+interface SourcingUnmet {
+  type_id: number
+  name: string
+  qty_needed: number
+  qty_produced: number
+  shortfall: number
+  location_id: number
+  location_name: string
+}
+
+interface ProjectSourcing {
+  materials: SourcingMaterial[]
+  items_to_buy: SourcingItemToBuy[]
+  total_cost: number
+  unmet: SourcingUnmet[]
 }
 
 interface EvaluateResponse {
@@ -86,7 +101,7 @@ interface EvaluateResponse {
   parse_errors: string[]
   unmatched_wants: UnmatchedWant[]
   unknown_wants: string[]
-  project_sourcing: ProjectSourcingRow[]
+  project_sourcing: ProjectSourcing
 }
 
 type SortKey =
@@ -241,16 +256,10 @@ function NeedBadges({ nb }: { nb: NeededBy }) {
   )
 }
 
-// ── Project sourcing panel ──────────────────────────────────────────────────────
+// ── Materials coverage table ────────────────────────────────────────────────────
 
-function sourceCellCls(row: ProjectSourcingRow, channel: 'buyback' | 'local' | 'jita', insufficient: boolean): string {
-  if (insufficient) return `${TD} text-right font-mono text-eve-amber`
-  const isBest = row.best?.channel === channel
-  return `${TD} text-right font-mono ${isBest ? 'text-eve-green font-semibold' : 'text-muted'}`
-}
-
-function SourcingPanel({ rows }: { rows: ProjectSourcingRow[] }) {
-  if (rows.length === 0) return null
+function MaterialsCoverage({ materials }: { materials: SourcingMaterial[] }) {
+  if (materials.length === 0) return null
   return (
     <div className="border border-wire rounded overflow-x-auto mb-4">
       <table className="w-full text-[12px]">
@@ -259,52 +268,171 @@ function SourcingPanel({ rows }: { rows: ProjectSourcingRow[] }) {
             <th className={`${TH} text-left`}>Material</th>
             <th className={`${TH} text-left`}>Location</th>
             <th className={`${TH} text-right`}>Qty needed</th>
-            <th className={`${TH} text-right`}>Buyback</th>
-            <th className={`${TH} text-right`}>Local</th>
-            <th className={`${TH} text-right`}>Jita landed</th>
-            <th className={`${TH} text-right`}>Best compressed</th>
-            <th className={`${TH} text-right`}>Best source</th>
+            <th className={`${TH} text-right`}>Qty covered</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-wire">
-          {rows.map(r => {
-            const bestCompressed = r.compressed_options.length
-              ? r.compressed_options.reduce((a, b) => (a.unit_cost < b.unit_cost ? a : b))
-              : null
+          {materials.map(m => {
+            const short = m.qty_needed - m.qty_covered
             return (
-              <tr key={`${r.location_id}-${r.type_id}`}>
+              <tr key={`${m.location_id}-${m.type_id}`}>
                 <td className={TD}>
-                  <span className="text-primary">{r.name}</span>
-                  <span className="block text-[10px] text-faint">{r.projects.join(', ')}</span>
+                  <span className="text-primary">{m.name}</span>
+                  <span className="block text-[10px] text-faint">{m.projects.join(', ')}</span>
                 </td>
-                <td className={`${TD} text-secondary`}>{r.location_name}</td>
-                <td className={`${TD} text-right font-mono text-secondary`}>{r.qty_needed.toLocaleString()}</td>
-                <td className={sourceCellCls(r, 'buyback', false)}>{iska(r.buyback_price)}</td>
-                <td
-                  className={sourceCellCls(r, 'local', r.local_depth_insufficient)}
-                  title={r.local_depth_insufficient ? 'Not enough sell volume at this location to cover the full shortfall' : undefined}
-                >
-                  {iska(r.local_price)}
-                </td>
-                <td
-                  className={sourceCellCls(r, 'jita', r.jita_depth_insufficient)}
-                  title={r.jita_depth_insufficient ? 'Not enough sell volume in Jita to cover the full shortfall' : undefined}
-                >
-                  {iska(r.jita_landed_price)}
-                </td>
-                <td className={`${TD} text-right font-mono ${bestCompressed?.depth_insufficient ? 'text-eve-amber' : 'text-muted'}`}>
-                  {bestCompressed ? `${iska(bestCompressed.unit_cost)}/u` : '—'}
-                  {bestCompressed && <span className="block text-[10px] text-faint">{bestCompressed.label}</span>}
-                </td>
-                <td className={`${TD} text-right font-mono font-semibold ${r.best?.depth_insufficient ? 'text-eve-amber' : 'text-eve-green'}`}>
-                  {r.best ? `${iska(r.best.unit_cost)}/u` : '—'}
-                  {r.best && <span className="block text-[10px] text-faint font-normal">{r.best.label}</span>}
+                <td className={`${TD} text-secondary`}>{m.location_name}</td>
+                <td className={`${TD} text-right font-mono text-secondary`}>{m.qty_needed.toLocaleString()}</td>
+                <td className={`${TD} text-right font-mono font-semibold ${short > 0 ? 'text-eve-amber' : 'text-eve-green'}`}>
+                  {m.qty_covered.toLocaleString()}
+                  {short > 0 && <span className="block text-[10px] text-faint font-normal">short {short.toLocaleString()}</span>}
                 </td>
               </tr>
             )
           })}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+function UnmetCallout({ unmet }: { unmet: SourcingUnmet[] }) {
+  if (unmet.length === 0) return null
+  return (
+    <div className="border border-eve-amber/40 rounded p-3 mb-4 space-y-1">
+      <p className="text-[12px] text-eve-amber font-semibold">
+        {unmet.length} shortfall{unmet.length !== 1 ? 's' : ''} can't be fully covered by any combination of buyback, local, or Jita supply
+      </p>
+      {unmet.map((u, i) => (
+        <div key={i} className="flex items-center gap-3 text-[11px] text-faint">
+          <span className="flex-1">{u.name} @ {u.location_name}</span>
+          <span className="font-mono">{u.qty_produced.toLocaleString()} / {u.qty_needed.toLocaleString()}</span>
+          <span className="font-mono text-eve-amber">short {u.shortfall.toLocaleString()}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Shopping plan (3 lists built from the joint sourcing plan's purchase lines) ─
+
+interface ShoppingLine {
+  type_id: number
+  name: string
+  qty: number
+  for_materials: string[]
+}
+
+function mergeLines(lines: ShoppingLine[]): ShoppingLine[] {
+  const byType = new Map<number, ShoppingLine>()
+  for (const l of lines) {
+    const existing = byType.get(l.type_id)
+    if (existing) {
+      existing.qty += l.qty
+      for (const m of l.for_materials) if (!existing.for_materials.includes(m)) existing.for_materials.push(m)
+    } else {
+      byType.set(l.type_id, { ...l, for_materials: [...l.for_materials] })
+    }
+  }
+  return [...byType.values()].sort((a, b) => b.qty - a.qty)
+}
+
+function buildShoppingLists(items: SourcingItemToBuy[]) {
+  const buyback: ShoppingLine[] = []
+  const jita: ShoppingLine[] = []
+  const localByLoc: Record<string, ShoppingLine[]> = {}
+
+  for (const item of items) {
+    const line: ShoppingLine = { type_id: item.type_id, name: item.name, qty: item.qty, for_materials: item.contributes_to }
+    if (item.channel === 'buyback') buyback.push(line)
+    else if (item.channel === 'jita') jita.push(line)
+    else if (item.channel === 'local' && item.location_name) (localByLoc[item.location_name] ??= []).push(line)
+  }
+
+  const local: Record<string, ShoppingLine[]> = {}
+  for (const [loc, ls] of Object.entries(localByLoc)) local[loc] = mergeLines(ls)
+
+  return { buyback: mergeLines(buyback), jita: mergeLines(jita), local }
+}
+
+function ShoppingListColumn({ title, lines, onCopy, copied }: {
+  title: string; lines: ShoppingLine[]; onCopy: () => void; copied: boolean
+}) {
+  return (
+    <div className="flex-1 min-w-[220px] border border-wire rounded p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[12px] text-primary font-semibold">{title}</span>
+        {lines.length > 0 && (
+          <button onClick={onCopy} className="text-[11px] text-muted hover:text-accent transition-colors">
+            {copied ? '✓ Copied' : 'Copy list'}
+          </button>
+        )}
+      </div>
+      {lines.length === 0 ? (
+        <p className="text-[11px] text-faint">Nothing here.</p>
+      ) : (
+        <div className="space-y-1">
+          {lines.map(l => (
+            <div key={l.type_id} className="flex items-start gap-2 text-[11px]">
+              <span className="flex-1 text-secondary">
+                {l.name}
+                <span className="block text-[10px] text-faint">for {l.for_materials.join(', ')}</span>
+              </span>
+              <span className="font-mono text-muted">×{l.qty.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ShoppingPlan({ items }: { items: SourcingItemToBuy[] }) {
+  const { buyback, jita, local } = useMemo(() => buildShoppingLists(items), [items])
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+
+  async function doCopy(key: string, lines: ShoppingLine[]) {
+    await copyText(buildMultibuy(lines.map(l => ({ name: l.name, qty: l.qty }))))
+    setCopiedKey(key)
+    setTimeout(() => setCopiedKey(k => (k === key ? null : k)), 1500)
+  }
+
+  const localLocations = Object.keys(local)
+  if (buyback.length === 0 && jita.length === 0 && localLocations.length === 0) return null
+
+  return (
+    <div className="mb-4">
+      <p className="text-[11px] text-faint mb-2">
+        Jointly-solved cheapest combination of sources for every shortfall at once, split into
+        three lists to act on — accept these from the buyback, buy these on the local market,
+        and multibuy-and-haul these from Jita.
+      </p>
+      <div className="flex gap-3 flex-wrap">
+        <ShoppingListColumn
+          title="Get from Buyback"
+          lines={buyback}
+          onCopy={() => doCopy('buyback', buyback)}
+          copied={copiedKey === 'buyback'}
+        />
+        {localLocations.length === 0 ? (
+          <ShoppingListColumn title="Buy Locally" lines={[]} onCopy={() => {}} copied={false} />
+        ) : (
+          localLocations.map(loc => (
+            <ShoppingListColumn
+              key={loc}
+              title={`Buy Locally · ${loc}`}
+              lines={local[loc]}
+              onCopy={() => doCopy(`local-${loc}`, local[loc])}
+              copied={copiedKey === `local-${loc}`}
+            />
+          ))
+        )}
+        <ShoppingListColumn
+          title="Buy & Import from Jita"
+          lines={jita}
+          onCopy={() => doCopy('jita', jita)}
+          copied={copiedKey === 'jita'}
+        />
+      </div>
     </div>
   )
 }
@@ -535,7 +663,13 @@ export function ProcurementClient() {
         ))}
       </div>
 
-      {activeTab === 'project' && <SourcingPanel rows={result.project_sourcing} />}
+      {activeTab === 'project' && (
+        <>
+          <UnmetCallout unmet={result.project_sourcing.unmet} />
+          <ShoppingPlan items={result.project_sourcing.items_to_buy} />
+          <MaterialsCoverage materials={result.project_sourcing.materials} />
+        </>
+      )}
 
       {activeRows.length > 0 && (
         <div className="flex items-center gap-6 flex-wrap">
