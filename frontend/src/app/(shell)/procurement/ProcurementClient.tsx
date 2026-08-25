@@ -33,6 +33,7 @@ interface RecommendedItem {
   low_velocity: boolean
   days_to_sell: number | null
   needed_by: NeededBy
+  priced_via_reprocessing: boolean
 }
 
 interface UnpricedItem {
@@ -40,6 +41,7 @@ interface UnpricedItem {
   name: string
   qty: number
   unit_price: number
+  priced_via_reprocessing: boolean
 }
 
 interface UnknownItem {
@@ -102,6 +104,8 @@ interface EvaluateResponse {
   unmatched_wants: UnmatchedWant[]
   unknown_wants: string[]
   project_sourcing: ProjectSourcing
+  ore_reprocessing_efficiency_pct: number
+  ore_reprocessing_fee_pct: number
 }
 
 type SortKey =
@@ -764,7 +768,17 @@ export function ProcurementClient() {
                     )}
                   </td>
                   <td className={`${TD} text-right font-mono text-secondary`}>{item.qty.toLocaleString()}</td>
-                  <td className={`${TD} text-right font-mono text-muted`}>{iska(item.unit_price)}</td>
+                  <td className={`${TD} text-right font-mono text-muted`}>
+                    {iska(item.unit_price)}
+                    {item.priced_via_reprocessing && (
+                      <span
+                        className="ml-1 text-[10px] text-faint"
+                        title={`Priced as reprocessed mineral value at ${result.ore_reprocessing_efficiency_pct.toFixed(2)}% efficiency minus a ${result.ore_reprocessing_fee_pct.toFixed(1)}% station fee, not this item's own market price`}
+                      >
+                        ⚙
+                      </span>
+                    )}
+                  </td>
                   <td className={`${TD} text-right font-mono text-muted`}>{iska(item.staging_sell_price)}</td>
                   <td className={`${TD} text-right font-mono ${profitCls(item.profit_per_unit)}`}>{iska(item.profit_per_unit)}</td>
                   <td className={`${TD} text-right font-mono ${profitCls(item.profit_per_unit)}`}>{fmtPct(item.profit_pct)}</td>

@@ -453,7 +453,10 @@ function ReprocessInventoryTab() {
     fetch('/api/locations').then(r => r.ok ? r.json() : []).then(setLocations)
     fetch('/api/settings')
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.reprocessing_efficiency_pct) setEfficiency(d.reprocessing_efficiency_pct) })
+      .then(d => {
+        if (d?.reprocessing_efficiency_pct) setEfficiency(d.reprocessing_efficiency_pct)
+        if (d?.reprocessing_fee_pct != null) setFeePct(d.reprocessing_fee_pct)
+      })
       .catch(() => {})
   }, [])
 

@@ -24,6 +24,7 @@ _POLL_KEYS = ("poll_char_orders", "poll_corp_orders", "poll_char_wallet", "poll_
 _DEFAULTS: dict[str, str] = {
     "poll_interval_minutes": "5",
     "reprocessing_efficiency_pct": "90.63",
+    "reprocessing_fee_pct": "1.0",
 }
 
 
@@ -49,6 +50,8 @@ async def _load_settings() -> dict:
             out[k] = int(v) if v else None
         elif k == "reprocessing_efficiency_pct":
             out[k] = float(v) if v else 90.63
+        elif k == "reprocessing_fee_pct":
+            out[k] = float(v) if v else 1.0
         elif v.lstrip("-").isdigit():
             out[k] = int(v)
         else:
@@ -75,6 +78,7 @@ class SettingsUpdate(_Base):
     poll_interval_minutes: int | None = None
     main_character_id: int | None = None
     reprocessing_efficiency_pct: float | None = None
+    reprocessing_fee_pct: float | None = None
     poll_char_orders: list[int] | None = None
     poll_corp_orders: list[int] | None = None
     poll_char_wallet: list[int] | None = None
@@ -97,6 +101,9 @@ async def update_settings(body: SettingsUpdate):
 
     if body.reprocessing_efficiency_pct is not None:
         await _save("reprocessing_efficiency_pct", str(body.reprocessing_efficiency_pct))
+
+    if body.reprocessing_fee_pct is not None:
+        await _save("reprocessing_fee_pct", str(body.reprocessing_fee_pct))
 
     for key, value in (
         ("poll_char_orders", body.poll_char_orders),

@@ -133,6 +133,32 @@ def reprocessing_materials(type_ids: list[int]) -> dict[int, list[dict]]:
     return result
 
 
+def ore_type_ids(type_ids: list[int]) -> set[int]:
+    """Subset of type_ids that are raw or compressed ore/ice/gas — the items a
+    buyback program typically prices by reprocessed mineral value rather than the
+    item's own trading price, since ore/compressed-ore markets are often thin and
+    disconnected from what the corp actually realizes by reprocessing it.
+
+    categoryID 25 (Asteroid) covers both ore and ice, raw and compressed alike —
+    compressed variants share their raw ore's groupID. Gas is its own pair of
+    groups: 711 (raw, "Harvestable Cloud") and 4168 (compressed, "Compressed Gas").
+    categoryID alone isn't a safe filter here — Abyssal weapon mutations can also
+    be named "Compressed <module>" and share unrelated categories, and plenty of
+    non-ore items reprocess into scrap materials without being tradeable "ore."
+    """
+    if not type_ids:
+        return set()
+    placeholders = ",".join("?" * len(type_ids))
+    rows = get_sde().execute(
+        f"""SELECT t.typeID
+            FROM invTypes t JOIN invGroups g ON t.groupID = g.groupID
+            WHERE t.typeID IN ({placeholders})
+              AND (g.categoryID = 25 OR t.groupID IN (711, 4168))""",
+        type_ids,
+    ).fetchall()
+    return {row["typeID"] for row in rows}
+
+
 def reprocessing_sources(material_type_ids: list[int]) -> dict[int, list[dict]]:
     """Reverse of reprocessing_materials(): for each mineral/material type_id, find the
     compressed ore/ice/gas items that reprocess into it. Returns {material_type_id:

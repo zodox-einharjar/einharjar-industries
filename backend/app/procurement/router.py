@@ -12,9 +12,12 @@ from ..market.velocity import daily_velocity
 from ..models import Location, MarketOrder
 from ..sde import resolve_region_id
 from ..settings.router import _load_settings
+from .ore_pricing import reprice_ore_by_reprocessed_value
 from .sourcing import compute_project_sourcing
 
 router = APIRouter(prefix="/procurement", dependencies=[Depends(get_current_character)])
+
+_JITA_EVE_ID = 60003760
 
 
 class EvaluateRequest(_Base):
@@ -37,6 +40,23 @@ async def evaluate(body: EvaluateRequest):
         loc = await session.get(Location, body.location_id)
         if not loc:
             raise HTTPException(404, "Location not found")
+
+        settings_data = await _load_settings()
+        efficiency = settings_data.get("reprocessing_efficiency_pct", 90.63) / 100.0
+        reprocessing_fee_pct = settings_data.get("reprocessing_fee_pct", 1.0)
+
+        jita_loc = (await session.execute(
+            select(Location).where(Location.eve_id == _JITA_EVE_ID)
+        )).scalar_one_or_none()
+        # A pasted ore/compressed-ore line's own trading price is usually a poor
+        # proxy for what a buyback program actually pays for it — reprice those
+        # lines by reprocessed mineral value (net of the station's reprocessing
+        # fee) instead, before anything downstream (profit calc, sourcing) reads
+        # unit_price.
+        repriced_type_ids = await reprice_ore_by_reprocessed_value(
+            session, jita_loc.id if jita_loc else None, resolved, body.price_type,
+            efficiency, reprocessing_fee_pct,
+        )
 
         type_ids = [i["type_id"] for i in resolved]
         staging_price: dict[int, float] = {}
@@ -88,7 +108,7 @@ async def evaluate(body: EvaluateRequest):
             if sp is None:
                 unpriced.append({
                     "type_id": tid, "name": item["item_name"], "qty": item["qty"],
-                    "unit_price": item["unit_price"],
+                    "unit_price": item["unit_price"], "priced_via_reprocessing": tid in repriced_type_ids,
                 })
                 continue
 
@@ -117,6 +137,7 @@ async def evaluate(body: EvaluateRequest):
                 "velocity_daily": round(v_daily, 2), "low_velocity": low_velocity,
                 "days_to_sell": round(item["qty"] / v_daily, 1) if v_daily > 0 else None,
                 "needed_by": needed_by,
+                "priced_via_reprocessing": tid in repriced_type_ids,
             }
 
             if profit_per_unit > 0:
@@ -140,8 +161,6 @@ async def evaluate(body: EvaluateRequest):
 
         buyback_prices_by_type = {i["type_id"]: i["unit_price"] for i in resolved}
         buyback_qty_by_type = {i["type_id"]: i["qty"] for i in resolved}
-        settings_data = await _load_settings()
-        efficiency = settings_data.get("reprocessing_efficiency_pct", 90.63) / 100.0
         project_sourcing = await compute_project_sourcing(
             session, buyback_prices_by_type, buyback_qty_by_type, efficiency,
         )
@@ -156,4 +175,6 @@ async def evaluate(body: EvaluateRequest):
             "unmatched_wants": unmatched_wants,
             "unknown_wants": unknown_wants,
             "project_sourcing": project_sourcing,
+            "ore_reprocessing_efficiency_pct": efficiency * 100,
+            "ore_reprocessing_fee_pct": reprocessing_fee_pct,
         }
