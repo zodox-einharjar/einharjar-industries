@@ -87,11 +87,25 @@ interface SourcingUnmet {
   location_name: string
 }
 
+interface ChannelSummary {
+  total_cost: number
+  best_alt_channel: 'buyback' | 'local' | 'jita' | null
+  best_alt_cost: number | null
+  isk_saved: number | null
+}
+
+const CHANNEL_LABEL: Record<string, string> = { buyback: 'buyback', local: 'local market', jita: 'Jita' }
+
 interface ProjectSourcing {
   materials: SourcingMaterial[]
   items_to_buy: SourcingItemToBuy[]
   total_cost: number
   unmet: SourcingUnmet[]
+  channel_summary: {
+    buyback: ChannelSummary | null
+    jita: ChannelSummary | null
+    local: Record<string, ChannelSummary>
+  }
 }
 
 interface EvaluateResponse {
@@ -358,8 +372,28 @@ function buildShoppingLists(items: SourcingItemToBuy[]) {
   return { buyback: mergeLines(buyback), jita: mergeLines(jita), local }
 }
 
-function ShoppingListColumn({ title, lines, onCopy, copied }: {
-  title: string; lines: ShoppingLine[]; onCopy: () => void; copied: boolean
+function ChannelTotals({ summary }: { summary: ChannelSummary | null | undefined }) {
+  if (!summary) return null
+  return (
+    <div className="border-t border-wire pt-1.5 mt-1.5 space-y-0.5">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="text-faint">Total cost</span>
+        <span className="font-mono text-primary font-semibold">{iska(summary.total_cost)}</span>
+      </div>
+      {summary.isk_saved != null && summary.best_alt_channel && (
+        <div className="flex items-center justify-between text-[11px]">
+          <span className="text-faint">vs {CHANNEL_LABEL[summary.best_alt_channel]}</span>
+          <span className={`font-mono ${summary.isk_saved >= 0 ? 'text-eve-green' : 'text-eve-red'}`}>
+            {summary.isk_saved >= 0 ? '−' : '+'}{iska(Math.abs(summary.isk_saved))} {summary.isk_saved >= 0 ? 'saved' : 'more'}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ShoppingListColumn({ title, lines, onCopy, copied, summary }: {
+  title: string; lines: ShoppingLine[]; onCopy: () => void; copied: boolean; summary?: ChannelSummary | null
 }) {
   return (
     <div className="flex-1 min-w-[220px] border border-wire rounded p-3 space-y-2">
@@ -386,11 +420,15 @@ function ShoppingListColumn({ title, lines, onCopy, copied }: {
           ))}
         </div>
       )}
+      <ChannelTotals summary={summary} />
     </div>
   )
 }
 
-function ShoppingPlan({ items }: { items: SourcingItemToBuy[] }) {
+function ShoppingPlan({ items, channelSummary }: {
+  items: SourcingItemToBuy[]
+  channelSummary: ProjectSourcing['channel_summary']
+}) {
   const { buyback, jita, local } = useMemo(() => buildShoppingLists(items), [items])
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
@@ -416,6 +454,7 @@ function ShoppingPlan({ items }: { items: SourcingItemToBuy[] }) {
           lines={buyback}
           onCopy={() => doCopy('buyback', buyback)}
           copied={copiedKey === 'buyback'}
+          summary={channelSummary.buyback}
         />
         {localLocations.length === 0 ? (
           <ShoppingListColumn title="Buy Locally" lines={[]} onCopy={() => {}} copied={false} />
@@ -423,6 +462,7 @@ function ShoppingPlan({ items }: { items: SourcingItemToBuy[] }) {
           localLocations.map(loc => (
             <ShoppingListColumn
               key={loc}
+              summary={channelSummary.local[loc]}
               title={`Buy Locally · ${loc}`}
               lines={local[loc]}
               onCopy={() => doCopy(`local-${loc}`, local[loc])}
@@ -435,6 +475,7 @@ function ShoppingPlan({ items }: { items: SourcingItemToBuy[] }) {
           lines={jita}
           onCopy={() => doCopy('jita', jita)}
           copied={copiedKey === 'jita'}
+          summary={channelSummary.jita}
         />
       </div>
     </div>
@@ -670,7 +711,7 @@ export function ProcurementClient() {
       {activeTab === 'project' && (
         <>
           <UnmetCallout unmet={result.project_sourcing.unmet} />
-          <ShoppingPlan items={result.project_sourcing.items_to_buy} />
+          <ShoppingPlan items={result.project_sourcing.items_to_buy} channelSummary={result.project_sourcing.channel_summary} />
           <MaterialsCoverage materials={result.project_sourcing.materials} />
         </>
       )}

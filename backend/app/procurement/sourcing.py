@@ -1,6 +1,7 @@
 from sqlalchemy import select
 
 from ..industry.shortfall import aggregate_project_needs
+from ..market.sell_book import walk_sell_book
 from ..models import FreightRoute, Location, MarketOrder
 from ..reprocessing.optimizer import solve_ore_lp
 from ..sde import portion_sizes, reprocessing_materials, reprocessing_sources, type_volumes
@@ -128,6 +129,7 @@ async def compute_project_sourcing(
                     "type_id": type_id, "name": name_by_id[type_id], "unit_price": price,
                     "portion": 1, "yields": {type_id: 1}, "efficiency": 1.0,
                     "max_batches": avail, "channel": "buyback", "contributes_to": contributes_to,
+                    "location_id": loc_id, "location_name": loc_name,
                 })
             for o in local_orders.get((loc_id, type_id), []):
                 if o.volume_remain <= 0:
@@ -176,6 +178,7 @@ async def compute_project_sourcing(
                     "type_id": ore_id, "name": ore_name, "unit_price": price,
                     "portion": portion, "yields": yields, "efficiency": efficiency,
                     "max_batches": avail // portion, "channel": "buyback", "contributes_to": contributes_to,
+                    "location_id": loc_id, "location_name": loc_name,
                 })
             for o in local_orders.get((loc_id, ore_id), []):
                 if o.volume_remain < portion:
@@ -244,9 +247,100 @@ async def compute_project_sourcing(
 
     materials_out.sort(key=lambda r: (r["qty_needed"] == r["qty_covered"], -r["qty_needed"]))
 
+    channel_summary = _summarize_by_channel(
+        all_items_to_buy, buyback_prices_by_type, local_orders, jita_orders, freight_by_loc, vols,
+    )
+
     return {
         "materials": materials_out,
         "items_to_buy": all_items_to_buy,
         "total_cost": total_cost,
         "unmet": all_unmet,
+        "channel_summary": channel_summary,
     }
+
+
+def _summarize_by_channel(
+    items_to_buy: list[dict],
+    buyback_prices_by_type: dict[int, float],
+    local_orders: dict[tuple[int, int], list[MarketOrder]],
+    jita_orders: dict[int, list[MarketOrder]],
+    freight_by_loc: dict[int, FreightRoute],
+    vols: dict[int, float],
+) -> dict:
+    """Per shopping-list box (buyback / each local location / Jita): total ISK cost of
+    what's actually in it, plus what the *same* items+quantities would have cost had
+    they all been bought through each other channel instead — at today's prices, not
+    accounting for depth already consumed by the real purchases in other boxes, since
+    this is an illustrative "what would it have cost elsewhere" figure, not a competing
+    allocation. A channel's hypothetical total is only reported if every item in the box
+    actually has a price there; isk_saved is the gap to the cheapest such alternative.
+    """
+    def _local_alt_unit_cost(loc_id: int | None, type_id: int, qty: int) -> float | None:
+        if not loc_id or qty <= 0:
+            return None
+        orders = local_orders.get((loc_id, type_id), [])
+        if not orders:
+            return None
+        return walk_sell_book(orders, qty)["unit_cost_avg"]
+
+    def _jita_alt_unit_cost(loc_id: int | None, type_id: int, qty: int) -> float | None:
+        if not loc_id or qty <= 0:
+            return None
+        orders = jita_orders.get(type_id, [])
+        route = freight_by_loc.get(loc_id)
+        if not orders or not route:
+            return None
+        walk = walk_sell_book(orders, qty)
+        if walk["unit_cost_avg"] is None:
+            return None
+        vol = vols.get(type_id, 0)
+        freight_per_unit = float(vol) * float(route.isk_per_m3) + walk["unit_cost_avg"] * float(route.value_pct)
+        return walk["unit_cost_avg"] + freight_per_unit
+
+    boxes: dict[tuple[str, str | None], dict] = {}
+    for item in items_to_buy:
+        key = ("local", item.get("location_name")) if item["channel"] == "local" else (item["channel"], None)
+        box = boxes.setdefault(key, {
+            "total_cost": 0.0,
+            "alt_totals": {"buyback": 0.0, "local": 0.0, "jita": 0.0},
+            "alt_available": {"buyback": True, "local": True, "jita": True},
+        })
+        box["total_cost"] += item["line_cost"]
+
+        for alt_channel in ("buyback", "local", "jita"):
+            if alt_channel == item["channel"]:
+                continue
+            if alt_channel == "buyback":
+                alt_unit_cost = buyback_prices_by_type.get(item["type_id"])
+            elif alt_channel == "local":
+                alt_unit_cost = _local_alt_unit_cost(item.get("location_id"), item["type_id"], item["qty"])
+            else:
+                alt_unit_cost = _jita_alt_unit_cost(item.get("location_id"), item["type_id"], item["qty"])
+
+            if alt_unit_cost is None:
+                box["alt_available"][alt_channel] = False
+            else:
+                box["alt_totals"][alt_channel] += alt_unit_cost * item["qty"]
+
+    summary: dict = {"buyback": None, "jita": None, "local": {}}
+    for (channel, loc_name), box in boxes.items():
+        alt_costs = {
+            c: box["alt_totals"][c]
+            for c in ("buyback", "local", "jita")
+            if c != channel and box["alt_available"][c]
+        }
+        best_alt_channel = min(alt_costs, key=lambda c: alt_costs[c]) if alt_costs else None
+        best_alt = alt_costs[best_alt_channel] if best_alt_channel else None
+        entry = {
+            "total_cost": box["total_cost"],
+            "best_alt_channel": best_alt_channel,
+            "best_alt_cost": best_alt,
+            "isk_saved": (best_alt - box["total_cost"]) if best_alt is not None else None,
+        }
+        if channel == "local":
+            summary["local"][loc_name] = entry
+        else:
+            summary[channel] = entry
+
+    return summary
