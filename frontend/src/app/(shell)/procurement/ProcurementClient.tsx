@@ -14,6 +14,12 @@ interface DoctrineRef {
   fit_name: string
 }
 
+interface NeededBy {
+  doctrines: DoctrineRef[]
+  projects: string[]
+  want_qty: number | null
+}
+
 interface RecommendedItem {
   type_id: number
   name: string
@@ -26,9 +32,7 @@ interface RecommendedItem {
   velocity_daily: number
   low_velocity: boolean
   days_to_sell: number | null
-  needed: boolean
-  doctrines: DoctrineRef[]
-  projects: string[]
+  needed_by: NeededBy
 }
 
 interface UnpricedItem {
@@ -43,6 +47,36 @@ interface UnknownItem {
   qty: number
 }
 
+interface UnmatchedWant {
+  type_id: number
+  name: string
+  qty: number
+}
+
+interface SourcingCandidate {
+  channel: string
+  label: string
+  unit_cost: number
+  depth_insufficient: boolean
+}
+
+interface ProjectSourcingRow {
+  type_id: number
+  name: string
+  location_id: number
+  location_name: string
+  qty_needed: number
+  projects: string[]
+  buyback_price: number | null
+  local_price: number | null
+  local_depth_insufficient: boolean
+  jita_landed_price: number | null
+  jita_depth_insufficient: boolean
+  compressed_options: SourcingCandidate[]
+  best: SourcingCandidate | null
+  total_cost_at_best: number | null
+}
+
 interface EvaluateResponse {
   location_name: string
   recommended: RecommendedItem[]
@@ -50,11 +84,16 @@ interface EvaluateResponse {
   unpriced: UnpricedItem[]
   unknown: UnknownItem[]
   parse_errors: string[]
+  unmatched_wants: UnmatchedWant[]
+  unknown_wants: string[]
+  project_sourcing: ProjectSourcingRow[]
 }
 
 type SortKey =
   | 'name' | 'qty' | 'unit_price' | 'staging_sell_price' | 'profit_per_unit' | 'profit_pct'
   | 'total_profit' | 'velocity_daily' | 'days_to_sell'
+
+type TabKey = 'doctrine' | 'project' | 'want' | 'market'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -117,6 +156,30 @@ function sortValue(item: RecommendedItem, key: SortKey): number | string {
   }
 }
 
+function hasDoctrineNeed(r: RecommendedItem): boolean { return r.needed_by.doctrines.length > 0 }
+function hasProjectNeed(r: RecommendedItem): boolean { return r.needed_by.projects.length > 0 }
+function hasWantNeed(r: RecommendedItem): boolean { return r.needed_by.want_qty != null }
+function hasAnyNeed(r: RecommendedItem): boolean {
+  return hasDoctrineNeed(r) || hasProjectNeed(r) || hasWantNeed(r)
+}
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'doctrine', label: 'Doctrine Needs' },
+  { key: 'project', label: 'Project Needs' },
+  { key: 'want', label: 'Personal Wants' },
+  { key: 'market', label: 'Market Flips' },
+]
+
+function computeTabRows(resp: EvaluateResponse): Record<TabKey, RecommendedItem[]> {
+  const allRows = [...resp.recommended, ...resp.unprofitable]
+  return {
+    doctrine: allRows.filter(hasDoctrineNeed),
+    project: allRows.filter(hasProjectNeed),
+    want: allRows.filter(hasWantNeed),
+    market: resp.recommended.filter(r => !hasAnyNeed(r)),
+  }
+}
+
 const PRICE_TYPES = [
   { value: 'buy'   as const, label: 'Jita buy'  },
   { value: 'sell'  as const, label: 'Jita sell' },
@@ -126,7 +189,6 @@ const PRICE_TYPES = [
 const TD = 'px-3 py-2 align-middle'
 const TH = 'px-3 py-2 text-[10px] text-muted font-semibold uppercase tracking-wider whitespace-nowrap'
 const BTN_SM = 'px-3 py-1 text-[12px] border border-wire text-muted hover:text-primary hover:border-secondary rounded transition-colors'
-const BTN_SM_PRIMARY = 'px-3 py-1 text-[12px] border border-accent text-accent hover:bg-accent hover:text-canvas rounded transition-colors disabled:opacity-40 disabled:pointer-events-none'
 
 // ── Sortable column header ────────────────────────────────────────────────────
 
@@ -147,22 +209,123 @@ function SortTh({ label, sortKey, current, dir, onSort }: {
   )
 }
 
+// ── Need badges ────────────────────────────────────────────────────────────────
+
+function NeedBadges({ nb }: { nb: NeededBy }) {
+  const badges: { key: string; label: string; title: string }[] = []
+  if (nb.doctrines.length) {
+    badges.push({
+      key: 'doctrine', label: 'doctrine',
+      title: nb.doctrines.map(d => `Doctrine: ${d.doctrine_name} / ${d.fit_name}`).join('\n'),
+    })
+  }
+  if (nb.projects.length) {
+    badges.push({ key: 'project', label: 'project', title: nb.projects.map(p => `Project: ${p}`).join('\n') })
+  }
+  if (nb.want_qty != null) {
+    badges.push({ key: 'want', label: 'wanted', title: `Personally wanted ×${nb.want_qty}` })
+  }
+  if (!badges.length) return null
+  return (
+    <>
+      {badges.map(b => (
+        <span
+          key={b.key}
+          title={b.title}
+          className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide border border-accent text-accent"
+        >
+          {b.label}
+        </span>
+      ))}
+    </>
+  )
+}
+
+// ── Project sourcing panel ──────────────────────────────────────────────────────
+
+function sourceCellCls(row: ProjectSourcingRow, channel: 'buyback' | 'local' | 'jita', insufficient: boolean): string {
+  if (insufficient) return `${TD} text-right font-mono text-eve-amber`
+  const isBest = row.best?.channel === channel
+  return `${TD} text-right font-mono ${isBest ? 'text-eve-green font-semibold' : 'text-muted'}`
+}
+
+function SourcingPanel({ rows }: { rows: ProjectSourcingRow[] }) {
+  if (rows.length === 0) return null
+  return (
+    <div className="border border-wire rounded overflow-x-auto mb-4">
+      <table className="w-full text-[12px]">
+        <thead className="bg-surface-hi border-b border-wire">
+          <tr>
+            <th className={`${TH} text-left`}>Material</th>
+            <th className={`${TH} text-left`}>Location</th>
+            <th className={`${TH} text-right`}>Qty needed</th>
+            <th className={`${TH} text-right`}>Buyback</th>
+            <th className={`${TH} text-right`}>Local</th>
+            <th className={`${TH} text-right`}>Jita landed</th>
+            <th className={`${TH} text-right`}>Best compressed</th>
+            <th className={`${TH} text-right`}>Best source</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-wire">
+          {rows.map(r => {
+            const bestCompressed = r.compressed_options.length
+              ? r.compressed_options.reduce((a, b) => (a.unit_cost < b.unit_cost ? a : b))
+              : null
+            return (
+              <tr key={`${r.location_id}-${r.type_id}`}>
+                <td className={TD}>
+                  <span className="text-primary">{r.name}</span>
+                  <span className="block text-[10px] text-faint">{r.projects.join(', ')}</span>
+                </td>
+                <td className={`${TD} text-secondary`}>{r.location_name}</td>
+                <td className={`${TD} text-right font-mono text-secondary`}>{r.qty_needed.toLocaleString()}</td>
+                <td className={sourceCellCls(r, 'buyback', false)}>{iska(r.buyback_price)}</td>
+                <td
+                  className={sourceCellCls(r, 'local', r.local_depth_insufficient)}
+                  title={r.local_depth_insufficient ? 'Not enough sell volume at this location to cover the full shortfall' : undefined}
+                >
+                  {iska(r.local_price)}
+                </td>
+                <td
+                  className={sourceCellCls(r, 'jita', r.jita_depth_insufficient)}
+                  title={r.jita_depth_insufficient ? 'Not enough sell volume in Jita to cover the full shortfall' : undefined}
+                >
+                  {iska(r.jita_landed_price)}
+                </td>
+                <td className={`${TD} text-right font-mono ${bestCompressed?.depth_insufficient ? 'text-eve-amber' : 'text-muted'}`}>
+                  {bestCompressed ? `${iska(bestCompressed.unit_cost)}/u` : '—'}
+                  {bestCompressed && <span className="block text-[10px] text-faint">{bestCompressed.label}</span>}
+                </td>
+                <td className={`${TD} text-right font-mono font-semibold ${r.best?.depth_insufficient ? 'text-eve-amber' : 'text-eve-green'}`}>
+                  {r.best ? `${iska(r.best.unit_cost)}/u` : '—'}
+                  {r.best && <span className="block text-[10px] text-faint font-normal">{r.best.label}</span>}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function BuybackClient() {
-  const [step, setStep] = useState<'form' | 'results' | 'done'>('form')
+export function ProcurementClient() {
+  const [step, setStep] = useState<'form' | 'results'>('form')
   const [locations, setLocations] = useState<Location[]>([])
   const [text, setText] = useState('')
+  const [wantListText, setWantListText] = useState('')
   const [locationId, setLocationId] = useState<number | ''>('')
   const [priceType, setPriceType] = useState<'buy' | 'sell' | 'split'>('sell')
   const [result, setResult] = useState<EvaluateResponse | null>(null)
+  const [activeTab, setActiveTab] = useState<TabKey>('market')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [sortKey, setSortKey] = useState<SortKey>('total_profit')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [minProfit, setMinProfit] = useState(0)
   const [minProfitPct, setMinProfitPct] = useState(0)
   const [minTotalProfit, setMinTotalProfit] = useState(0)
-  const [created, setCreated] = useState(0)
   const [copied, setCopied] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -186,36 +349,39 @@ export function BuybackClient() {
     })
   }
 
-  const maxProfit = useMemo(
-    () => niceMax(Math.max(0, ...(result?.recommended.map(i => i.profit_per_unit) ?? []))),
+  const tabRows = useMemo(
+    () => result ? computeTabRows(result) : { doctrine: [], project: [], want: [], market: [] },
     [result]
+  )
+  const activeRows = tabRows[activeTab]
+
+  const maxProfit = useMemo(
+    () => niceMax(Math.max(0, ...activeRows.map(i => i.profit_per_unit))),
+    [activeRows]
   )
   const maxProfitPct = useMemo(
-    () => niceMax(Math.max(0, ...(result?.recommended.map(i => i.profit_pct ?? 0) ?? []))),
-    [result]
+    () => niceMax(Math.max(0, ...activeRows.map(i => i.profit_pct ?? 0))),
+    [activeRows]
   )
   const maxTotalProfit = useMemo(
-    () => niceMax(Math.max(0, ...(result?.recommended.map(i => i.total_profit) ?? []))),
-    [result]
+    () => niceMax(Math.max(0, ...activeRows.map(i => i.total_profit))),
+    [activeRows]
   )
   const filtersActive = minProfit > 0 || minProfitPct > 0 || minTotalProfit > 0
 
-  const filteredRecommended = useMemo(() => {
-    if (!result) return []
-    return result.recommended.filter(i =>
-      (minProfit <= 0 || i.profit_per_unit >= minProfit) &&
-      (minProfitPct <= 0 || (i.profit_pct ?? -Infinity) >= minProfitPct) &&
-      (minTotalProfit <= 0 || i.total_profit >= minTotalProfit)
-    )
-  }, [result, minProfit, minProfitPct, minTotalProfit])
+  const filteredRows = useMemo(() => activeRows.filter(i =>
+    (minProfit <= 0 || i.profit_per_unit >= minProfit) &&
+    (minProfitPct <= 0 || (i.profit_pct ?? -Infinity) >= minProfitPct) &&
+    (minTotalProfit <= 0 || i.total_profit >= minTotalProfit)
+  ), [activeRows, minProfit, minProfitPct, minTotalProfit])
 
-  const allSelected = filteredRecommended.length > 0 && filteredRecommended.every(i => selected.has(i.type_id))
+  const allSelected = filteredRows.length > 0 && filteredRows.every(i => selected.has(i.type_id))
 
   function toggleSelectAll() {
-    setSelected(allSelected ? new Set() : new Set(filteredRecommended.map(i => i.type_id)))
+    setSelected(allSelected ? new Set() : new Set(filteredRows.map(i => i.type_id)))
   }
 
-  const sortedRecommended = [...filteredRecommended].sort((a, b) => {
+  const sortedRows = [...filteredRows].sort((a, b) => {
     const av = sortValue(a, sortKey)
     const bv = sortValue(b, sortKey)
     const cmp = av < bv ? -1 : av > bv ? 1 : 0
@@ -226,14 +392,20 @@ export function BuybackClient() {
     if (!text.trim() || !locationId) return
     setLoading(true); setError(null)
     try {
-      const res = await fetch('/api/buyback/evaluate', {
+      const res = await fetch('/api/procurement/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.trim(), price_type: priceType, location_id: locationId }),
+        body: JSON.stringify({
+          text: text.trim(), price_type: priceType, location_id: locationId,
+          want_list_text: wantListText.trim(),
+        }),
       })
       if (!res.ok) throw new Error((await res.json()).detail || 'Evaluation failed')
-      setResult(await res.json())
+      const data: EvaluateResponse = await res.json()
+      setResult(data)
       setSelected(new Set())
+      const tr = computeTabRows(data)
+      setActiveTab(TABS.find(t => tr[t.key].length > 0)?.key ?? 'market')
       setStep('results')
     } catch (e: any) {
       setError(e.message || 'Failed to evaluate')
@@ -244,48 +416,18 @@ export function BuybackClient() {
 
   async function copyList() {
     if (!result) return
-    const items = result.recommended.filter(i => selected.has(i.type_id))
+    const allRows = [...result.recommended, ...result.unprofitable]
+    const items = allRows.filter(i => selected.has(i.type_id))
     if (items.length === 0) return
     await copyText(buildMultibuy(items.map(i => ({ name: i.name, qty: i.qty }))))
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
 
-  async function handleAccept() {
-    if (!result || !locationId) return
-    const items = result.recommended
-      .filter(i => selected.has(i.type_id))
-      .map(r => ({ type_id: r.type_id, item_name: r.name, qty: r.qty, unit_price: r.unit_price }))
-    if (items.length === 0) return
-    setLoading(true); setError(null)
-    try {
-      const res = await fetch('/api/buyback/accept', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, location_id: locationId }),
-      })
-      if (!res.ok) throw new Error()
-      setCreated((await res.json()).created)
-      setStep('done')
-    } catch {
-      setError('Failed to save.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   function reset() {
-    setText(''); setResult(null); setSelected(new Set()); setStep('form'); setError(null)
+    setText(''); setWantListText(''); setResult(null); setSelected(new Set()); setStep('form'); setError(null)
     setMinProfit(0); setMinProfitPct(0); setMinTotalProfit(0)
   }
-
-  if (step === 'done') return (
-    <div className="py-12 text-center space-y-2">
-      <div className="text-[20px] text-eve-green font-mono">{created}</div>
-      <div className="text-[13px] text-secondary">lot{created !== 1 ? 's' : ''} added to inventory</div>
-      <button onClick={reset} className={`mt-4 ${BTN_SM_PRIMARY}`}>Evaluate another list</button>
-    </div>
-  )
 
   if (step === 'form') return (
     <div className="max-w-2xl space-y-4">
@@ -302,6 +444,20 @@ export function BuybackClient() {
         placeholder={"Nitrogen Fuel Block\t10\t5.00\t17010.00\t17960.00"}
         className="w-full bg-canvas border border-wire rounded px-3 py-2 text-[12px] font-mono text-primary placeholder:text-faint focus:outline-none focus:border-accent resize-none"
       />
+      <div>
+        <label className="block text-[11px] text-muted mb-1.5">Items you personally need (optional)</label>
+        <p className="text-[11px] text-faint mb-1.5">
+          Name and quantity only, no price — flags these in the Personal Wants tab and notes anything
+          you asked for that isn't currently being offered.
+        </p>
+        <textarea
+          value={wantListText}
+          onChange={e => setWantListText(e.target.value)}
+          rows={4}
+          placeholder={"Tritanium\t500000\nPyerite\t120000"}
+          className="w-full bg-canvas border border-wire rounded px-3 py-2 text-[12px] font-mono text-primary placeholder:text-faint focus:outline-none focus:border-accent resize-none"
+        />
+      </div>
       <div className="flex gap-3">
         <div className="flex-1">
           <label className="block text-[11px] text-muted mb-1.5">Buyback location</label>
@@ -331,7 +487,11 @@ export function BuybackClient() {
         </div>
       </div>
       <div className="flex justify-end">
-        <button onClick={handleEvaluate} disabled={!text.trim() || !locationId || loading} className={BTN_SM_PRIMARY}>
+        <button
+          onClick={handleEvaluate}
+          disabled={!text.trim() || !locationId || loading}
+          className="px-3 py-1 text-[12px] border border-accent text-accent hover:bg-accent hover:text-canvas rounded transition-colors disabled:opacity-40 disabled:pointer-events-none"
+        >
           {loading ? 'Evaluating…' : 'Evaluate'}
         </button>
       </div>
@@ -341,13 +501,14 @@ export function BuybackClient() {
   // step === 'results'
   if (!result) return null
 
+  const pureUnprofitable = result.unprofitable.filter(r => !hasAnyNeed(r))
+
   return (
     <div className="space-y-4">
       {error && <p className="text-[12px] text-eve-red">{error}</p>}
       <div className="flex items-center justify-between">
         <div className="text-[13px] text-primary">
-          {result.location_name} · <span className="text-eve-green">{result.recommended.length} profitable</span>
-          {result.unprofitable.length > 0 && <span className="text-muted"> · {result.unprofitable.length} unprofitable</span>}
+          {result.location_name}
           {result.unpriced.length > 0 && <span className="text-muted"> · {result.unpriced.length} unpriced</span>}
           {result.unknown.length > 0 && <span className="text-eve-red"> · {result.unknown.length} unknown</span>}
         </div>
@@ -360,7 +521,23 @@ export function BuybackClient() {
         </div>
       )}
 
-      {result.recommended.length > 0 && (
+      <div className="flex gap-1.5 border-b border-wire">
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={`px-3 py-2 text-[12px] border-b-2 -mb-px transition-colors ${
+              activeTab === t.key ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-secondary'
+            }`}
+          >
+            {t.label} <span className="text-faint">({tabRows[t.key].length})</span>
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'project' && <SourcingPanel rows={result.project_sourcing} />}
+
+      {activeRows.length > 0 && (
         <div className="flex items-center gap-6 flex-wrap">
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-faint whitespace-nowrap">Min profit/u</span>
@@ -412,11 +589,11 @@ export function BuybackClient() {
         </div>
       )}
 
-      {result.recommended.length === 0 ? (
+      {activeRows.length === 0 ? (
         <div className="bg-surface border border-wire rounded p-8 text-center text-muted text-[13px]">
-          Nothing in this list is profitable at {result.location_name}'s current prices.
+          Nothing here yet.
         </div>
-      ) : filteredRecommended.length === 0 ? (
+      ) : filteredRows.length === 0 ? (
         <div className="bg-surface border border-wire rounded p-8 text-center text-muted text-[13px]">
           No items match the current filters.
         </div>
@@ -440,24 +617,14 @@ export function BuybackClient() {
               </tr>
             </thead>
             <tbody className="divide-y divide-wire">
-              {sortedRecommended.map(item => (
+              {sortedRows.map(item => (
                 <tr key={item.type_id} className={item.low_velocity ? 'opacity-50' : ''}>
                   <td className="px-3 py-2">
                     <input type="checkbox" checked={selected.has(item.type_id)} onChange={() => toggleSelect(item.type_id)} aria-label={`Select ${item.name}`} className="align-middle" />
                   </td>
                   <td className={TD}>
                     <span className="text-primary">{item.name}</span>
-                    {item.needed && (
-                      <span
-                        className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide border border-accent text-accent"
-                        title={[
-                          ...item.doctrines.map(d => `Doctrine: ${d.doctrine_name} / ${d.fit_name}`),
-                          ...item.projects.map(p => `Project: ${p}`),
-                        ].join('\n')}
-                      >
-                        needed
-                      </span>
-                    )}
+                    <NeedBadges nb={item.needed_by} />
                     {item.low_velocity && (
                       <span className="ml-1.5 text-[10px] text-faint uppercase">no sales data</span>
                     )}
@@ -477,13 +644,43 @@ export function BuybackClient() {
         </div>
       )}
 
-      {(result.unprofitable.length > 0 || result.unpriced.length > 0 || result.unknown.length > 0) && (
+      {activeTab === 'want' && (result.unmatched_wants.length > 0 || result.unknown_wants.length > 0) && (
         <div className="space-y-3">
-          {result.unprofitable.length > 0 && (
-            <details className="text-[12px]">
-              <summary className="cursor-pointer text-muted hover:text-secondary">{result.unprofitable.length} unprofitable (skip these)</summary>
+          {result.unmatched_wants.length > 0 && (
+            <details className="text-[12px]" open>
+              <summary className="cursor-pointer text-eve-amber hover:text-secondary">
+                {result.unmatched_wants.length} wanted item{result.unmatched_wants.length !== 1 ? 's' : ''} not currently offered
+              </summary>
               <div className="mt-2 space-y-0.5 pl-3">
-                {result.unprofitable.map((item, i) => (
+                {result.unmatched_wants.map((item, i) => (
+                  <div key={i} className="flex items-center gap-3 text-faint">
+                    <span className="flex-1 truncate">{item.name}</span>
+                    <span className="font-mono">×{item.qty.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+          {result.unknown_wants.length > 0 && (
+            <details className="text-[12px]">
+              <summary className="cursor-pointer text-eve-red hover:text-secondary">
+                {result.unknown_wants.length} unresolved want-list line{result.unknown_wants.length !== 1 ? 's' : ''}
+              </summary>
+              <div className="mt-2 space-y-0.5 pl-3">
+                {result.unknown_wants.map((line, i) => <div key={i} className="text-faint">{line}</div>)}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+
+      {(pureUnprofitable.length > 0 || result.unpriced.length > 0 || result.unknown.length > 0) && (
+        <div className="space-y-3">
+          {pureUnprofitable.length > 0 && (
+            <details className="text-[12px]">
+              <summary className="cursor-pointer text-muted hover:text-secondary">{pureUnprofitable.length} unprofitable, not needed (skip these)</summary>
+              <div className="mt-2 space-y-0.5 pl-3">
+                {pureUnprofitable.map((item, i) => (
                   <div key={i} className="flex items-center gap-3 text-faint">
                     <span className="flex-1 truncate">{item.name}</span>
                     <span className="font-mono">×{item.qty.toLocaleString()}</span>
@@ -525,9 +722,6 @@ export function BuybackClient() {
       <div className="flex justify-end gap-2">
         <button onClick={copyList} disabled={selected.size === 0} className={BTN_SM}>
           {copied ? '✓ Copied' : `Copy Selected (${selected.size}) to Multibuy`}
-        </button>
-        <button onClick={handleAccept} disabled={selected.size === 0 || loading} className={BTN_SM_PRIMARY}>
-          {loading ? 'Saving…' : `Buy Selected (${selected.size}) → Add to Inventory`}
         </button>
       </div>
     </div>

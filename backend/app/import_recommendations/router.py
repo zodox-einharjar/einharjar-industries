@@ -1,5 +1,4 @@
 from collections import defaultdict
-from decimal import Decimal
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
@@ -7,6 +6,7 @@ from sqlalchemy import func, select
 from ..auth.deps import get_current_character
 from ..db import AsyncSessionLocal
 from ..doctrines.shortfall import aggregate_shortfalls
+from ..market.sell_book import walk_sell_book
 from ..market.velocity import daily_velocity
 from ..models import FreightRoute, InventoryLot, Location, MarketOrder
 from ..sde import resolve_region_id, type_volumes
@@ -14,29 +14,6 @@ from ..sde import resolve_region_id, type_volumes
 router = APIRouter(prefix="/import-recommendations", dependencies=[Depends(get_current_character)])
 
 _JITA_EVE_ID = 60003760
-
-
-def _walk_sell_book(orders: list[MarketOrder], qty: int) -> dict:
-    """Walk sell orders cheapest-first up to qty; returns the true volume-weighted cost
-    rather than assuming every unit costs what the single best order costs."""
-    ordered = sorted(orders, key=lambda o: float(o.price))
-    remaining = qty
-    total_cost = Decimal(0)
-    filled = 0
-    worst_price: Decimal | None = None
-    for o in ordered:
-        if remaining <= 0:
-            break
-        take = min(remaining, o.volume_remain)
-        total_cost += o.price * take
-        filled += take
-        worst_price = o.price
-        remaining -= take
-    return {
-        "unit_cost_avg": float(total_cost / filled) if filled else None,
-        "qty_fillable": filled,
-        "worst_unit_price": float(worst_price) if worst_price is not None else None,
-    }
 
 
 @router.get("")
@@ -127,7 +104,7 @@ async def import_recommendations(window_days: int = 14):
                 low_velocity = v_daily <= 0
                 qty_to_buy = 0 if low_velocity else min(qty_after_netting, round(v_daily * window_days))
 
-                walk = _walk_sell_book(jita_by_type.get(type_id, []), qty_to_buy) if qty_to_buy > 0 else {
+                walk = walk_sell_book(jita_by_type.get(type_id, []), qty_to_buy) if qty_to_buy > 0 else {
                     "unit_cost_avg": None, "qty_fillable": 0, "worst_unit_price": None,
                 }
                 actual_qty = min(qty_to_buy, walk["qty_fillable"])

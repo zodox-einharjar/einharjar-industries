@@ -39,7 +39,7 @@ const NAV = [
       { label: 'Watchlist', href: '/market' },
       { label: 'Contracts', href: '/contracts' },
       { label: 'Inventory', href: '/inventory' },
-      { label: 'Buyback', href: '/buyback' },
+      { label: 'Procurement', href: '/procurement' },
       { label: 'History', href: '/pnl' },
     ],
   },

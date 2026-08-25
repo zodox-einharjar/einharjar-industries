@@ -133,6 +133,42 @@ def reprocessing_materials(type_ids: list[int]) -> dict[int, list[dict]]:
     return result
 
 
+def reprocessing_sources(material_type_ids: list[int]) -> dict[int, list[dict]]:
+    """Reverse of reprocessing_materials(): for each mineral/material type_id, find the
+    compressed ore/ice/gas items that reprocess into it. Returns {material_type_id:
+    [{"type_id": int, "name": str, "quantity": int, "portion_size": int}, ...]}.
+
+    Restricted to items named "Compressed *" in the Asteroid category (categoryID 25,
+    which covers both ore and ice) or the Compressed Gas group (4168) — typeMaterials
+    also lists trace yields for ammo, modules, etc. that reprocess into the same base
+    minerals, and Abyssal weapon mutations can *also* be named "Compressed <module>" as
+    flavor text, so the name prefix alone isn't a reliable filter on its own.
+    """
+    if not material_type_ids:
+        return {}
+    placeholders = ",".join("?" * len(material_type_ids))
+    rows = get_sde().execute(
+        f"""SELECT tm.materialTypeID, tm.typeID, t.typeName, tm.quantity, t.portionSize
+            FROM typeMaterials tm
+            JOIN invTypes t ON tm.typeID = t.typeID
+            JOIN invGroups g ON t.groupID = g.groupID
+            WHERE tm.materialTypeID IN ({placeholders})
+              AND t.typeName LIKE 'Compressed %'
+              AND t.portionSize IS NOT NULL
+              AND (g.categoryID = 25 OR t.groupID = 4168)""",
+        material_type_ids,
+    ).fetchall()
+    result: dict[int, list[dict]] = {}
+    for row in rows:
+        result.setdefault(row["materialTypeID"], []).append({
+            "type_id": row["typeID"],
+            "name": row["typeName"],
+            "quantity": row["quantity"],
+            "portion_size": row["portionSize"],
+        })
+    return result
+
+
 def portion_sizes(type_ids: list[int]) -> dict[int, int]:
     if not type_ids:
         return {}

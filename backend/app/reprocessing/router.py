@@ -7,7 +7,8 @@ from scipy.optimize import linprog
 
 from ..auth.deps import get_current_character
 from ..inventory.janice_parser import parse_janice_text
-from ..sde import portion_sizes, reprocessing_materials, type_id_by_name
+from ..inventory.simple_list_parser import parse_name_qty_text
+from ..sde import portion_sizes, reprocessing_materials
 from ..settings.router import _load_settings
 
 router = APIRouter(prefix="/reprocessing", dependencies=[Depends(get_current_character)])
@@ -20,37 +21,9 @@ class OptimizeRequest(_Base):
     efficiency_pct: float | None = None
 
 
-def _parse_minerals(text: str) -> tuple[list[dict], list[str]]:
-    """Parse 'Name<tab-or-space>Qty' lines. Returns ([{type_id, name, qty}], [unresolved lines])."""
-    resolved = []
-    unresolved = []
-    for raw in text.strip().splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        parts = line.split('\t')
-        if len(parts) < 2:
-            parts = line.rsplit(None, 1)
-        if len(parts) < 2:
-            unresolved.append(line)
-            continue
-        name = parts[0].strip()
-        try:
-            qty = int(parts[1].replace(',', '').strip())
-        except ValueError:
-            unresolved.append(line)
-            continue
-        tid = type_id_by_name(name)
-        if tid is None:
-            unresolved.append(name)
-            continue
-        resolved.append({"type_id": tid, "name": name, "qty": qty})
-    return resolved, unresolved
-
-
 @router.post("/optimize")
 async def optimize(body: OptimizeRequest):
-    minerals, mineral_unresolved = _parse_minerals(body.minerals_text)
+    minerals, mineral_unresolved = parse_name_qty_text(body.minerals_text)
     mineral_id_set = {m["type_id"] for m in minerals}
 
     parsed_supply, supply_parse_errors = parse_janice_text(body.supply_text, body.price_type)

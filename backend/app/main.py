@@ -8,7 +8,6 @@ from .config import settings
 from .db import create_tables
 from .esi.client import esi
 from .auth.router import router as auth_router
-from .buyback.router import router as buyback_router
 from .contracts.router import router as contracts_router
 from .doctrines.router import router as doctrines_router
 from .industry.router import router as industry_router
@@ -18,6 +17,7 @@ from .inventory.router import router as inventory_router
 from .market_listings.router import router as market_listings_router
 from .market_watch.router import router as market_watch_router
 from .mercenary.router import router as mercenary_router
+from .procurement.router import router as procurement_router
 from .reprocessing.router import router as reprocessing_router
 from .settings.router import router as settings_router
 from .scheduler.jobs import start_scheduler, stop_scheduler
@@ -43,7 +43,6 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(auth_router)
-app.include_router(buyback_router)
 app.include_router(contracts_router)
 app.include_router(doctrines_router)
 app.include_router(industry_jobs_router)
@@ -53,6 +52,7 @@ app.include_router(inventory_router)
 app.include_router(market_listings_router)
 app.include_router(market_watch_router)
 app.include_router(mercenary_router)
+app.include_router(procurement_router)
 app.include_router(reprocessing_router)
 app.include_router(settings_router)
 

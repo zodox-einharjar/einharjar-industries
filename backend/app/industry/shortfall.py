@@ -2,14 +2,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from ..models import IndustryProject, InventoryLot, LotReservation
+from ..sde import type_names
 
 
-async def aggregate_project_needs(session) -> dict[int, dict]:
-    """Cross-project material shortfall aggregation, keyed by type_id.
+async def aggregate_project_needs(session) -> dict[tuple[int, int], dict]:
+    """Cross-project material shortfall aggregation, keyed by (output_location_id, type_id).
 
     Mirrors doctrines.shortfall.aggregate_shortfalls() but sourced from
     ProjectMaterial vs. inventory for planning/in_progress projects. Each
-    entry: {type_id, qty_shortfall, projects: {project_name, ...}}.
+    entry: {type_id, name, qty_shortfall, projects: {project_name, ...}}.
     """
     projects = (await session.execute(
         select(IndustryProject)
@@ -24,6 +25,7 @@ async def aggregate_project_needs(session) -> dict[int, dict]:
     type_ids = {m.type_id for p in projects for m in p.materials}
     if not type_ids:
         return {}
+    names = type_names(list(type_ids))
 
     lots = (await session.execute(
         select(InventoryLot)
@@ -47,7 +49,7 @@ async def aggregate_project_needs(session) -> dict[int, dict]:
         key = (r.project_id, r.lot_id)
         reserved_by_project_lot[key] = reserved_by_project_lot.get(key, 0) + r.qty_reserved
 
-    needs: dict[int, dict] = {}
+    needs: dict[tuple[int, int], dict] = {}
     for p in projects:
         for m in p.materials:
             avail = 0
@@ -64,8 +66,10 @@ async def aggregate_project_needs(session) -> dict[int, dict]:
             if shortfall <= 0:
                 continue
 
-            acc = needs.setdefault(m.type_id, {
-                "type_id": m.type_id, "qty_shortfall": 0, "projects": set(),
+            key = (p.output_location_id, m.type_id)
+            acc = needs.setdefault(key, {
+                "type_id": m.type_id, "name": names.get(m.type_id, f"[{m.type_id}]"),
+                "qty_shortfall": 0, "projects": set(),
             })
             acc["qty_shortfall"] += shortfall
             acc["projects"].add(p.name)
