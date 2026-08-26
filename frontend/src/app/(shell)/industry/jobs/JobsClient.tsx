@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import Link from 'next/link'
 import { useTopbarActions } from '@/lib/topbar-context'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -8,6 +9,8 @@ import { useTopbarActions } from '@/lib/topbar-context'
 interface IndustryJob {
   id: number
   job_id: number
+  project_id: number | null
+  project_name: string | null
   source: 'char' | 'corp'
   activity_id: number
   activity_name: string
@@ -289,6 +292,15 @@ export function JobsClient() {
                         <span className="block truncate text-[11px] text-muted" title={j.product_name}>
                           → {j.product_name}
                         </span>
+                      )}
+                      {j.project_id && (
+                        <Link
+                          href={`/industry/${j.project_id}`}
+                          className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-accent/40 bg-accent/10 text-[10px] text-accent hover:bg-accent/20 truncate max-w-full"
+                          title={`Linked to project: ${j.project_name}`}
+                        >
+                          {j.project_name}
+                        </Link>
                       )}
                     </td>
                     <td className={`${TD} font-mono text-secondary whitespace-nowrap`}>

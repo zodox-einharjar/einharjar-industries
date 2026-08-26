@@ -49,8 +49,12 @@ async def relink_project_jobs(session, project_ids: list[int] | None = None) -> 
 
     ijobs_by_type: dict[int, list[IndustryJob]] = {}
     for ij in ijobs:
-        tid = ij.product_type_id or ij.blueprint_type_id
-        ijobs_by_type.setdefault(tid, []).append(ij)
+        # ProjectJob.name is always a *blueprint* name (the paste format is
+        # "Blueprint Name / Runs / Days / Job Cost", e.g. "Vexor Blueprint") — key
+        # real jobs the same way, not by the item they're producing, or every
+        # manufacturing/reaction job (whose product differs from its blueprint)
+        # would silently fail to match.
+        ijobs_by_type.setdefault(ij.blueprint_type_id, []).append(ij)
     for lst in ijobs_by_type.values():
         lst.sort(key=lambda ij: ij.start_date)
 

@@ -93,6 +93,20 @@ function parseIsk(s: string): number {
   return parseFloat(s.replace(/[\s,]/g, '')) || 0
 }
 
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text)
+  } else {
+    const el = document.createElement('textarea')
+    el.value = text
+    el.style.cssText = 'position:fixed;opacity:0'
+    document.body.appendChild(el)
+    el.focus(); el.select()
+    document.execCommand('copy')
+    document.body.removeChild(el)
+  }
+}
+
 const STATUS_COLOR: Record<string, string> = {
   planning: 'bg-eve-amber/15 text-eve-amber',
   in_progress: 'bg-accent/15 text-accent',
@@ -344,12 +358,18 @@ function OverviewTab({
   const [pastingOutputs, setPastingOutputs] = useState(false)
   const [copiedMissing, setCopiedMissing] = useState(false)
 
-  function copyMissing() {
+  async function copyMissing() {
     const missing = project.materials.filter(m => m.qty_shortfall > 0)
-    const text = missing.map(m => `${m.name} x ${m.qty_shortfall}`).join('\n')
-    navigator.clipboard.writeText(text)
-    setCopiedMissing(true)
-    setTimeout(() => setCopiedMissing(false), 1500)
+    const text = missing.map(m => `${m.name} x${m.qty_shortfall}`).join('\n')
+    try {
+      await copyText(text)
+      setCopiedMissing(true)
+      setTimeout(() => setCopiedMissing(false), 1500)
+    } catch {
+      // clipboard write failed (blocked permission, insecure context with no
+      // fallback available, etc.) — leave the button as-is rather than lie
+      // about having copied anything.
+    }
   }
 
   async function searchItems(q: string) {

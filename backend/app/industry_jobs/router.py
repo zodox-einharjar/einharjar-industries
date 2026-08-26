@@ -4,7 +4,7 @@ from sqlalchemy import select
 from ..auth.deps import get_current_character
 from ..db import AsyncSessionLocal
 from ..esi.client import esi
-from ..models import Character, IndustryJob
+from ..models import Character, IndustryJob, IndustryProject, ProjectJob
 from ..sde import station_name, type_names
 
 router = APIRouter(prefix="/industry/jobs", dependencies=[Depends(get_current_character)])
@@ -36,6 +36,18 @@ async def list_jobs():
         jobs = (await session.execute(select(IndustryJob))).scalars().all()
         all_chars = (await session.execute(select(Character))).scalars().all()
 
+        project_by_job_id: dict[int, dict] = {}
+        if jobs:
+            rows = (await session.execute(
+                select(ProjectJob.industry_job_id, IndustryProject.id, IndustryProject.name)
+                .join(IndustryProject, ProjectJob.project_id == IndustryProject.id)
+                .where(ProjectJob.industry_job_id.in_([j.id for j in jobs]))
+            )).all()
+            project_by_job_id = {
+                industry_job_id: {"project_id": project_id, "project_name": project_name}
+                for industry_job_id, project_id, project_name in rows
+            }
+
     char_name_by_id = {c.character_id: c.character_name for c in all_chars}
 
     unknown_ids = {
@@ -52,9 +64,12 @@ async def list_jobs():
 
     result = []
     for j in jobs:
+        linked_project = project_by_job_id.get(j.id)
         result.append({
             "id": j.id,
             "job_id": j.job_id,
+            "project_id": linked_project["project_id"] if linked_project else None,
+            "project_name": linked_project["project_name"] if linked_project else None,
             "source": j.source,
             "activity_id": j.activity_id,
             "activity_name": _ACTIVITY_LABELS.get(j.activity_id, "Unknown"),
