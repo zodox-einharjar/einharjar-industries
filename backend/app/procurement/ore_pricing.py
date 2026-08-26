@@ -1,7 +1,7 @@
 from sqlalchemy import func, select
 
 from ..models import MarketOrder
-from ..sde import ore_type_ids, portion_sizes, reprocessing_materials
+from ..sde import gas_type_ids, ore_type_ids, portion_sizes, reprocessing_materials
 
 
 async def _jita_reference_prices(
@@ -47,13 +47,16 @@ async def _jita_reference_prices(
 
 async def reprice_ore_by_reprocessed_value(
     session, jita_loc_id: int | None, resolved: list[dict], price_type: str,
-    efficiency: float, fee_pct: float = 0.0,
+    efficiency: float, gas_efficiency: float, fee_pct: float = 0.0,
 ) -> set[int]:
     """Mutates `resolved` items in place: for any pasted line that's raw or compressed
     ore/ice/gas, overrides unit_price with the reprocessed mineral value (at the given
-    efficiency, priced off Jita per price_type) instead of the item's own market price —
-    matching how a buyback program typically prices ore, since its trading price often
-    has little to do with what the corp actually realizes by reprocessing it.
+    efficiency — gas uses gas_efficiency instead, since gas can't be reprocessed at all
+    in EVE and is decompressed under its own Gas Decompression Efficiency skill,
+    independent of ore/ice's — priced off Jita per price_type) instead of the item's own
+    market price — matching how a buyback program typically prices ore, since its
+    trading price often has little to do with what the corp actually realizes by
+    reprocessing it.
 
     fee_pct is the station's reprocessing tax/fee, as a percentage of the raw output
     value — it reduces what the corp actually nets from reprocessing the ore, so it's
@@ -71,6 +74,7 @@ async def reprice_ore_by_reprocessed_value(
     yields = reprocessing_materials(list(candidate_ids))
     mineral_ids = list({m["material_type_id"] for lst in yields.values() for m in lst})
     mineral_prices = await _jita_reference_prices(session, jita_loc_id, mineral_ids, price_type)
+    gas_ids = gas_type_ids(list(candidate_ids))
 
     repriced: set[int] = set()
     for item in resolved:
@@ -81,8 +85,9 @@ async def reprice_ore_by_reprocessed_value(
         mats = yields.get(tid)
         if not portion or not mats:
             continue
+        item_efficiency = gas_efficiency if tid in gas_ids else efficiency
         value_per_portion = sum(
-            m["quantity"] * efficiency * mineral_prices.get(m["material_type_id"], 0.0)
+            m["quantity"] * item_efficiency * mineral_prices.get(m["material_type_id"], 0.0)
             for m in mats
         )
         net_value_per_portion = value_per_portion * (1 - fee_pct / 100.0)

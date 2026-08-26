@@ -45,6 +45,7 @@ async def evaluate(body: EvaluateRequest):
 
         settings_data = await _load_settings()
         efficiency = settings_data.get("reprocessing_efficiency_pct", 90.63) / 100.0
+        gas_efficiency = settings_data.get("reprocessing_gas_efficiency_pct", 90.0) / 100.0
         reprocessing_fee_pct = settings_data.get("reprocessing_fee_pct", 1.0)
 
         jita_loc = (await session.execute(
@@ -57,7 +58,7 @@ async def evaluate(body: EvaluateRequest):
         # unit_price.
         repriced_type_ids = await reprice_ore_by_reprocessed_value(
             session, jita_loc.id if jita_loc else None, resolved, body.price_type,
-            efficiency, reprocessing_fee_pct,
+            efficiency, gas_efficiency, reprocessing_fee_pct,
         )
 
         type_ids = [i["type_id"] for i in resolved]
@@ -164,7 +165,7 @@ async def evaluate(body: EvaluateRequest):
         buyback_prices_by_type = {i["type_id"]: i["unit_price"] for i in resolved}
         buyback_qty_by_type = {i["type_id"]: i["qty"] for i in resolved}
         project_sourcing = await compute_project_sourcing(
-            session, buyback_prices_by_type, buyback_qty_by_type, efficiency,
+            session, buyback_prices_by_type, buyback_qty_by_type, efficiency, gas_efficiency,
             body.project_ids, body.ignore_inventory,
         )
 
@@ -179,5 +180,6 @@ async def evaluate(body: EvaluateRequest):
             "unknown_wants": unknown_wants,
             "project_sourcing": project_sourcing,
             "ore_reprocessing_efficiency_pct": efficiency * 100,
+            "gas_reprocessing_efficiency_pct": gas_efficiency * 100,
             "ore_reprocessing_fee_pct": reprocessing_fee_pct,
         }

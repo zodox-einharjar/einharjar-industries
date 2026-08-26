@@ -11,7 +11,7 @@ from ..db import AsyncSessionLocal
 from ..inventory.janice_parser import parse_janice_text
 from ..inventory.simple_list_parser import parse_name_qty_text
 from ..models import InventoryLot
-from ..sde import portion_sizes, reprocessing_materials
+from ..sde import gas_type_ids, portion_sizes, reprocessing_materials
 from ..settings.router import _load_settings
 from .inventory_job import compute_reprocess_job
 from .optimizer import solve_ore_lp
@@ -26,6 +26,7 @@ class OptimizeRequest(_Base):
     supply_text: str        # ore and/or raw minerals available to buy, Janice paste format
     price_type: str         # "buy" | "sell" | "split"
     efficiency_pct: float | None = None
+    gas_efficiency_pct: float | None = None
 
 
 async def _resolve_efficiency_pct(efficiency_pct: float | None) -> float:
@@ -33,6 +34,13 @@ async def _resolve_efficiency_pct(efficiency_pct: float | None) -> float:
         return efficiency_pct
     settings_data = await _load_settings()
     return settings_data.get("reprocessing_efficiency_pct", 90.63)
+
+
+async def _resolve_gas_efficiency_pct(gas_efficiency_pct: float | None) -> float:
+    if gas_efficiency_pct is not None:
+        return gas_efficiency_pct
+    settings_data = await _load_settings()
+    return settings_data.get("reprocessing_gas_efficiency_pct", 90.0)
 
 
 @router.post("/optimize")
@@ -50,11 +58,14 @@ async def optimize(body: OptimizeRequest):
 
     efficiency_pct = await _resolve_efficiency_pct(body.efficiency_pct)
     efficiency = efficiency_pct / 100.0
+    gas_efficiency_pct = await _resolve_gas_efficiency_pct(body.gas_efficiency_pct)
+    gas_efficiency = gas_efficiency_pct / 100.0
 
     supply_type_ids = [i["type_id"] for i in supply_resolved]
     try:
         mats_by_type = reprocessing_materials(supply_type_ids)
         sizes_by_type = portion_sizes(supply_type_ids)
+        gas_ids = gas_type_ids(supply_type_ids)
     except sqlite3.OperationalError:
         raise HTTPException(
             503,
@@ -78,7 +89,7 @@ async def optimize(body: OptimizeRequest):
                 options.append({
                     "type_id": tid, "name": i["item_name"], "unit_price": i["unit_price"],
                     "mode": "reprocess", "portion": portion, "yields": yields,
-                    "efficiency": efficiency, "max_batches": max_batches,
+                    "efficiency": gas_efficiency if tid in gas_ids else efficiency, "max_batches": max_batches,
                 })
         if tid in mineral_id_set and i["qty"] > 0:
             options.append({
@@ -92,6 +103,7 @@ async def optimize(body: OptimizeRequest):
     return {
         **result,
         "efficiency_pct": efficiency * 100,
+        "gas_efficiency_pct": gas_efficiency * 100,
         "unpriced": supply_unpriced,
         "unknown": supply_unknown,
         "parse_errors": supply_parse_errors,
@@ -110,6 +122,7 @@ class ReprocessJobRequest(_Base):
     location_id: int
     items: list[ReprocessItem]
     efficiency_pct: float | None = None
+    gas_efficiency_pct: float | None = None
     fee_pct: float = 0.0
 
 
@@ -156,9 +169,11 @@ async def inventory_candidates(location_id: int):
 @router.post("/inventory-preview")
 async def inventory_preview(body: ReprocessJobRequest):
     efficiency_pct = await _resolve_efficiency_pct(body.efficiency_pct)
+    gas_efficiency_pct = await _resolve_gas_efficiency_pct(body.gas_efficiency_pct)
     async with AsyncSessionLocal() as session:
         result = await compute_reprocess_job(
-            session, body.location_id, [i.model_dump() for i in body.items], efficiency_pct, body.fee_pct,
+            session, body.location_id, [i.model_dump() for i in body.items],
+            efficiency_pct, gas_efficiency_pct, body.fee_pct,
         )
     return result
 
@@ -166,9 +181,12 @@ async def inventory_preview(body: ReprocessJobRequest):
 @router.post("/inventory-confirm")
 async def inventory_confirm(body: ReprocessJobRequest):
     efficiency_pct = await _resolve_efficiency_pct(body.efficiency_pct)
+    gas_efficiency_pct = await _resolve_gas_efficiency_pct(body.gas_efficiency_pct)
     async with AsyncSessionLocal() as session:
         items = [i.model_dump() for i in body.items]
-        result = await compute_reprocess_job(session, body.location_id, items, efficiency_pct, body.fee_pct)
+        result = await compute_reprocess_job(
+            session, body.location_id, items, efficiency_pct, gas_efficiency_pct, body.fee_pct,
+        )
         if not result["ok"]:
             raise HTTPException(400, "; ".join(result["errors"]))
 

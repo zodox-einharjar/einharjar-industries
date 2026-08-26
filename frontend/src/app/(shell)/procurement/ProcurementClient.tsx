@@ -125,6 +125,7 @@ interface EvaluateResponse {
   unknown_wants: string[]
   project_sourcing: ProjectSourcing
   ore_reprocessing_efficiency_pct: number
+  gas_reprocessing_efficiency_pct: number
   ore_reprocessing_fee_pct: number
 }
 
@@ -871,7 +872,7 @@ export function ProcurementClient() {
                     {item.priced_via_reprocessing && (
                       <span
                         className="ml-1 text-[10px] text-faint"
-                        title={`Priced as reprocessed mineral value at ${result.ore_reprocessing_efficiency_pct.toFixed(2)}% efficiency minus a ${result.ore_reprocessing_fee_pct.toFixed(1)}% station fee, not this item's own market price`}
+                        title={`Priced as reprocessed mineral value at ${result.ore_reprocessing_efficiency_pct.toFixed(2)}% efficiency (${result.gas_reprocessing_efficiency_pct.toFixed(2)}% for gas) minus a ${result.ore_reprocessing_fee_pct.toFixed(1)}% station fee, not this item's own market price`}
                       >
                         ⚙
                       </span>

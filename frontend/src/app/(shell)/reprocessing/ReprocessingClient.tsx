@@ -46,6 +46,7 @@ interface OptimizeResponse {
   minerals: MineralLine[]
   unmet_minerals: UnmetMineral[]
   efficiency_pct: number
+  gas_efficiency_pct: number
   unpriced: UnpricedItem[]
   unknown: UnknownItem[]
   parse_errors: string[]
@@ -98,6 +99,7 @@ interface JobResult {
   total_output_reference_value?: number
   total_cost_to_allocate?: number
   efficiency_pct?: number
+  gas_efficiency_pct?: number
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -166,6 +168,7 @@ function BuyPlannerTab() {
   const [supplyText, setSupplyText] = useState('')
   const [priceType, setPriceType] = useState<'buy' | 'sell' | 'split'>('sell')
   const [efficiency, setEfficiency] = useState(90.63)
+  const [gasEfficiency, setGasEfficiency] = useState(90.0)
   const [result, setResult] = useState<OptimizeResponse | null>(null)
   const [copied, setCopied] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -175,7 +178,10 @@ function BuyPlannerTab() {
   useEffect(() => {
     fetch('/api/settings')
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.reprocessing_efficiency_pct) setEfficiency(d.reprocessing_efficiency_pct) })
+      .then(d => {
+        if (d?.reprocessing_efficiency_pct) setEfficiency(d.reprocessing_efficiency_pct)
+        if (d?.reprocessing_gas_efficiency_pct) setGasEfficiency(d.reprocessing_gas_efficiency_pct)
+      })
       .catch(() => {})
     mineralsRef.current?.focus()
   }, [])
@@ -192,6 +198,7 @@ function BuyPlannerTab() {
           supply_text: supplyText.trim(),
           price_type: priceType,
           efficiency_pct: efficiency,
+          gas_efficiency_pct: gasEfficiency,
         }),
       })
       if (!res.ok) throw new Error(await errorMessage(res, 'Optimization failed'))
@@ -266,13 +273,25 @@ function BuyPlannerTab() {
           </div>
         </div>
         <div>
-          <label className="block text-[11px] text-muted mb-1.5">Reprocessing efficiency</label>
+          <label className="block text-[11px] text-muted mb-1.5">Ore/ice efficiency</label>
           <div className="flex items-center gap-1.5">
             <input
-              type="number" step="0.01" min="0" max="100"
+              type="number" step="0.0001" min="0" max="100"
               value={efficiency}
               onChange={e => setEfficiency(Number(e.target.value))}
-              className="w-24 bg-canvas border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
+              className="w-28 bg-canvas border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
+            />
+            <span className="text-[13px] text-muted">%</span>
+          </div>
+        </div>
+        <div>
+          <label className="block text-[11px] text-muted mb-1.5">Gas efficiency</label>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number" step="0.0001" min="0" max="100"
+              value={gasEfficiency}
+              onChange={e => setGasEfficiency(Number(e.target.value))}
+              className="w-28 bg-canvas border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
             />
             <span className="text-[13px] text-muted">%</span>
           </div>
@@ -300,7 +319,7 @@ function BuyPlannerTab() {
         <div className="text-[13px] text-primary">
           {result.items_to_buy.length} item{result.items_to_buy.length !== 1 ? 's' : ''} to buy ·{' '}
           <span className="text-eve-green">{iska(result.total_cost)} ISK total</span> ·{' '}
-          <span className="text-muted">{result.efficiency_pct.toFixed(2)}% efficiency</span>
+          <span className="text-muted">{result.efficiency_pct.toFixed(4)}% ore/ice · {result.gas_efficiency_pct.toFixed(4)}% gas</span>
           {result.unmet_minerals.length > 0 && (
             <span className="text-eve-red"> · {result.unmet_minerals.length} mineral{result.unmet_minerals.length !== 1 ? 's' : ''} short</span>
           )}
@@ -442,7 +461,10 @@ function ReprocessInventoryTab() {
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [qtyByType, setQtyByType] = useState<Record<number, number>>({})
+  const [pasteText, setPasteText] = useState('')
+  const [pasteWarnings, setPasteWarnings] = useState<string[]>([])
   const [efficiency, setEfficiency] = useState(90.63)
+  const [gasEfficiency, setGasEfficiency] = useState(90.0)
   const [feePct, setFeePct] = useState(0)
   const [result, setResult] = useState<JobResult | null>(null)
   const [loadingCandidates, setLoadingCandidates] = useState(false)
@@ -455,13 +477,14 @@ function ReprocessInventoryTab() {
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (d?.reprocessing_efficiency_pct) setEfficiency(d.reprocessing_efficiency_pct)
+        if (d?.reprocessing_gas_efficiency_pct) setGasEfficiency(d.reprocessing_gas_efficiency_pct)
         if (d?.reprocessing_fee_pct != null) setFeePct(d.reprocessing_fee_pct)
       })
       .catch(() => {})
   }, [])
 
   useEffect(() => {
-    if (!locationId) { setCandidates([]); setSelected(new Set()); setQtyByType({}); return }
+    if (!locationId) { setCandidates([]); setSelected(new Set()); setQtyByType({}); setPasteText(''); setPasteWarnings([]); return }
     setLoadingCandidates(true); setError(null)
     fetch(`/api/reprocessing/inventory-candidates?location_id=${locationId}`)
       .then(async r => { if (!r.ok) throw new Error(await errorMessage(r, 'Failed to load inventory')); return r.json() })
@@ -469,6 +492,8 @@ function ReprocessInventoryTab() {
         setCandidates(d.candidates)
         setQtyByType(Object.fromEntries(d.candidates.map((c: Candidate) => [c.type_id, c.qty_available])))
         setSelected(new Set())
+        setPasteText('')
+        setPasteWarnings([])
       })
       .catch(e => setError(e.message || 'Failed to load inventory'))
       .finally(() => setLoadingCandidates(false))
@@ -486,6 +511,46 @@ function ReprocessInventoryTab() {
     setQtyByType(prev => ({ ...prev, [type_id]: Math.max(0, Math.min(qty, max)) }))
   }
 
+  // "Name<tab or space>Qty" per line — same convention as the mineral/want-list paste
+  // boxes elsewhere in the app, so a copy out of the EVE inventory window just works.
+  function parsePasteLine(line: string): { name: string; qty: number } | null {
+    let parts = line.split('\t').map(p => p.trim()).filter(p => p !== '')
+    if (parts.length < 2) {
+      const m = line.match(/^(.*\S)\s+([\d,]+)\s*$/)
+      if (!m) return null
+      parts = [m[1], m[2]]
+    }
+    const name = parts[0]
+    const qty = parseInt(parts[1].replace(/,/g, ''), 10)
+    if (!name || Number.isNaN(qty)) return null
+    return { name, qty }
+  }
+
+  function handlePasteMatch() {
+    const byName = new Map(candidates.map(c => [c.name.toLowerCase(), c]))
+    const warnings: string[] = []
+    const newSelected = new Set<number>()
+    const newQty: Record<number, number> = {}
+
+    for (const raw of pasteText.split('\n')) {
+      const line = raw.trim()
+      if (!line) continue
+      const parsed = parsePasteLine(line)
+      if (!parsed) { warnings.push(`Couldn't parse line: "${line}"`); continue }
+      const cand = byName.get(parsed.name.toLowerCase())
+      if (!cand) { warnings.push(`Not in your inventory here: ${parsed.name}`); continue }
+      if (parsed.qty > cand.qty_available) {
+        warnings.push(`${cand.name}: pasted ${parsed.qty.toLocaleString()}, only ${cand.qty_available.toLocaleString()} available — capped`)
+      }
+      newSelected.add(cand.type_id)
+      newQty[cand.type_id] = Math.max(0, Math.min(parsed.qty, cand.qty_available))
+    }
+
+    setSelected(newSelected)
+    setQtyByType(prev => ({ ...prev, ...newQty }))
+    setPasteWarnings(warnings)
+  }
+
   const selectedItems = candidates
     .filter(c => selected.has(c.type_id) && (qtyByType[c.type_id] ?? 0) > 0)
     .map(c => ({ type_id: c.type_id, qty: qtyByType[c.type_id] ?? 0 }))
@@ -497,7 +562,10 @@ function ReprocessInventoryTab() {
       const res = await fetch('/api/reprocessing/inventory-preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ location_id: locationId, items: selectedItems, efficiency_pct: efficiency, fee_pct: feePct }),
+        body: JSON.stringify({
+          location_id: locationId, items: selectedItems,
+          efficiency_pct: efficiency, gas_efficiency_pct: gasEfficiency, fee_pct: feePct,
+        }),
       })
       if (!res.ok) throw new Error(await errorMessage(res, 'Preview failed'))
       const data: JobResult = await res.json()
@@ -518,7 +586,10 @@ function ReprocessInventoryTab() {
       const res = await fetch('/api/reprocessing/inventory-confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ location_id: locationId, items: selectedItems, efficiency_pct: efficiency, fee_pct: feePct }),
+        body: JSON.stringify({
+          location_id: locationId, items: selectedItems,
+          efficiency_pct: efficiency, gas_efficiency_pct: gasEfficiency, fee_pct: feePct,
+        }),
       })
       if (!res.ok) throw new Error(await errorMessage(res, 'Confirm failed'))
       const data: JobResult = await res.json()
@@ -571,7 +642,7 @@ function ReprocessInventoryTab() {
       {error && <p className="text-[12px] text-eve-red">{error}</p>}
       <div className="flex items-center justify-between">
         <div className="text-[13px] text-primary">
-          {result.location_name} · <span className="text-muted">{(result.efficiency_pct ?? 0).toFixed(2)}% efficiency</span>
+          {result.location_name} · <span className="text-muted">{(result.efficiency_pct ?? 0).toFixed(4)}% ore/ice · {(result.gas_efficiency_pct ?? 0).toFixed(4)}% gas</span>
           {(result.fee_pct ?? 0) > 0 && <span className="text-muted"> · {result.fee_pct}% station fee ({iska(result.fee_isk)})</span>}
         </div>
         <button onClick={() => setStep('select')} className={BTN_SM}>← Back</button>
@@ -660,6 +731,32 @@ function ReprocessInventoryTab() {
         </select>
       </div>
 
+      {locationId !== '' && !loadingCandidates && candidates.length > 0 && (
+        <div>
+          <label className="block text-[11px] text-muted mb-1.5">
+            Paste to select — one per line, <span className="font-mono text-faint">Name  Qty</span> (matched
+            against inventory at this location)
+          </label>
+          <textarea
+            value={pasteText}
+            onChange={e => setPasteText(e.target.value)}
+            rows={4}
+            placeholder={'Compressed Veldspar II-Grade\t590200\nCompressed Gneiss IV-Grade\t127400'}
+            className="w-full bg-canvas border border-wire rounded px-3 py-2 text-[12px] font-mono text-primary placeholder:text-faint focus:outline-none focus:border-accent resize-none"
+          />
+          <div className="flex justify-end mt-1.5">
+            <button onClick={handlePasteMatch} disabled={!pasteText.trim()} className={BTN_SM}>
+              Match to inventory
+            </button>
+          </div>
+          {pasteWarnings.length > 0 && (
+            <div className="mt-2 space-y-0.5">
+              {pasteWarnings.map((w, i) => <p key={i} className="text-[11px] text-eve-amber">{w}</p>)}
+            </div>
+          )}
+        </div>
+      )}
+
       {locationId !== '' && (
         loadingCandidates ? (
           <p className="text-[12px] text-muted">Loading inventory…</p>
@@ -707,13 +804,25 @@ function ReprocessInventoryTab() {
 
       <div className="flex gap-3">
         <div>
-          <label className="block text-[11px] text-muted mb-1.5">Reprocessing efficiency</label>
+          <label className="block text-[11px] text-muted mb-1.5">Ore/ice efficiency</label>
           <div className="flex items-center gap-1.5">
             <input
-              type="number" step="0.01" min="0" max="100"
+              type="number" step="0.0001" min="0" max="100"
               value={efficiency}
               onChange={e => setEfficiency(Number(e.target.value))}
-              className="w-24 bg-canvas border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
+              className="w-28 bg-canvas border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
+            />
+            <span className="text-[13px] text-muted">%</span>
+          </div>
+        </div>
+        <div>
+          <label className="block text-[11px] text-muted mb-1.5">Gas efficiency</label>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number" step="0.0001" min="0" max="100"
+              value={gasEfficiency}
+              onChange={e => setGasEfficiency(Number(e.target.value))}
+              className="w-28 bg-canvas border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
             />
             <span className="text-[13px] text-muted">%</span>
           </div>

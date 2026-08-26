@@ -45,6 +45,7 @@ type SdeCheckResult = {
 export function GeneralTab() {
   const [interval, setIntervalVal]   = useState<number>(5)
   const [efficiency, setEfficiency]  = useState<number>(90.63)
+  const [gasEfficiency, setGasEfficiency] = useState<number>(90.0)
   const [feePct, setFeePct]          = useState<number>(1.0)
   const [esiExpires, setEsiExpires]  = useState<string | null>(null)
   const [loading, setLoading]        = useState(true)
@@ -70,6 +71,7 @@ export function GeneralTab() {
       const data = await settingsRes.json()
       setIntervalVal(data.poll_interval_minutes ?? 5)
       setEfficiency(data.reprocessing_efficiency_pct ?? 90.63)
+      setGasEfficiency(data.reprocessing_gas_efficiency_pct ?? 90.0)
       setFeePct(data.reprocessing_fee_pct ?? 1.0)
       setEsiExpires(data.orders_esi_expires ?? null)
       if (sdeRes.ok) {
@@ -91,6 +93,7 @@ export function GeneralTab() {
         body: JSON.stringify({
           poll_interval_minutes: interval,
           reprocessing_efficiency_pct: efficiency,
+          reprocessing_gas_efficiency_pct: gasEfficiency,
           reprocessing_fee_pct: feePct,
         }),
       })
@@ -172,20 +175,40 @@ export function GeneralTab() {
         <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">Reprocessing</span>
         <div className="mt-3 rounded border border-wire p-4 space-y-3">
           <div className="flex items-center gap-4">
-            <label className="text-[13px] text-secondary w-40 flex-shrink-0">Default efficiency</label>
+            <label className="text-[13px] text-secondary w-40 flex-shrink-0">Ore/ice efficiency</label>
             <div className="flex items-center gap-1.5">
               <input
-                type="number" step="0.01" min="0" max="100"
+                type="number" step="0.0001" min="0" max="100"
                 value={efficiency}
                 onChange={e => setEfficiency(Number(e.target.value))}
-                className="w-24 bg-surface border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
+                className="w-28 bg-surface border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
               />
               <span className="text-[13px] text-muted">%</span>
             </div>
           </div>
           <p className="text-[11px] text-faint">
-            Used by the Reprocessing page to estimate mineral yield from ore. Match this to your
-            station/structure + rig + skill bonuses (e.g. a fully-bonused Rorqual/Athanor is ~90.63%).
+            Used by the Reprocessing page to estimate mineral yield from ore/ice. The 2-decimal number
+            EVE displays (e.g. &quot;90.63%&quot;) is rounded — the true value from compounding skill/rig/
+            structure bonuses usually has more digits, and at large batch sizes that rounding compounds
+            into a real gap between predicted and actual output. For an exact value, reprocess a batch
+            in-game and back-solve: efficiency = actual output ÷ (batches × base material qty per
+            portion, from the SDE), to as many decimals as you can get.
+          </p>
+          <div className="flex items-center gap-4">
+            <label className="text-[13px] text-secondary w-40 flex-shrink-0">Gas efficiency</label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number" step="0.0001" min="0" max="100"
+                value={gasEfficiency}
+                onChange={e => setGasEfficiency(Number(e.target.value))}
+                className="w-28 bg-surface border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
+              />
+              <span className="text-[13px] text-muted">%</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-faint">
+            Gas can&apos;t be reprocessed in EVE — compressed gas is decompressed instead, under its
+            own Gas Decompression Efficiency skill, independent of the ore/ice Reprocessing skills.
           </p>
           <div className="flex items-center gap-4">
             <label className="text-[13px] text-secondary w-40 flex-shrink-0">Station fee</label>

@@ -6,13 +6,14 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from ..models import InventoryLot, Location, MarketOrder
-from ..sde import portion_sizes, reprocessing_materials, type_names
+from ..sde import gas_type_ids, portion_sizes, reprocessing_materials, type_names
 
 _JITA_EVE_ID = 60003760
 
 
 async def compute_reprocess_job(
-    session, location_id: int, items: list[dict], efficiency_pct: float, fee_pct: float,
+    session, location_id: int, items: list[dict], efficiency_pct: float,
+    gas_efficiency_pct: float, fee_pct: float,
 ) -> dict:
     """Preview (and the basis for confirming) a reprocessing job against owned inventory.
 
@@ -20,7 +21,12 @@ async def compute_reprocess_job(
     Quantity is floored to whole portions (EVE can't reprocess a partial batch); any
     remainder is left untouched in inventory, not consumed.
 
-    Output quantities come from efficiency_pct alone — the station fee does NOT reduce
+    Compressed gas uses gas_efficiency_pct instead of efficiency_pct — gas can't be
+    reprocessed at all in EVE, it's "decompressed" back to raw gas instead, a separate
+    mechanic with its own Gas Decompression Efficiency skill independent of ore/ice's
+    Reprocessing / Reprocessing Efficiency skills.
+
+    Output quantities come from efficiency_pct/gas_efficiency_pct alone — the station fee does NOT reduce
     yield. Instead fee_pct is charged against the reference market value of the raw
     output (local sell price at location_id, falling back to Jita) as a flat ISK cost,
     exactly like freight cost gets folded into a transferred lot's cost basis elsewhere
@@ -32,7 +38,8 @@ async def compute_reprocess_job(
 
     Returns {"ok": False, "errors": [...]} on any problem, or
     {"ok": True, "location_name", "inputs", "outputs", "total_input_cost", "fee_pct",
-     "fee_isk", "total_output_reference_value", "total_cost_to_allocate", "efficiency_pct"}.
+     "fee_isk", "total_output_reference_value", "total_cost_to_allocate", "efficiency_pct",
+     "gas_efficiency_pct"}.
     Each input: {type_id, name, qty_requested, qty_consumed, qty_leftover, unit_cost, line_cost}.
     Each output: {type_id, name, qty, reference_price, reference_value, value_share_pct,
                   allocated_cost, unit_cost}.
@@ -64,6 +71,8 @@ async def compute_reprocess_job(
         lots_by_type.setdefault(lot.type_id, []).append(lot)
 
     efficiency = efficiency_pct / 100.0
+    gas_efficiency = gas_efficiency_pct / 100.0
+    gas_ids = gas_type_ids(type_ids)
 
     inputs: list[dict] = []
     produced: dict[int, int] = {}
@@ -71,6 +80,7 @@ async def compute_reprocess_job(
 
     for item in items:
         tid, requested = item["type_id"], item["qty"]
+        item_efficiency = gas_efficiency if tid in gas_ids else efficiency
         name = names.get(tid, f"[{tid}]")
         portion = sizes.get(tid)
         yields = {m["material_type_id"]: m["quantity"] for m in mats.get(tid, [])}
@@ -106,7 +116,7 @@ async def compute_reprocess_job(
             "unit_cost": float(cost / qty_consumed), "line_cost": float(cost),
         })
         for mtid, mqty in yields.items():
-            produced[mtid] = produced.get(mtid, 0) + floor(batches * mqty * efficiency)
+            produced[mtid] = produced.get(mtid, 0) + floor(batches * mqty * item_efficiency)
 
     if errors:
         return {"ok": False, "errors": errors}
@@ -183,4 +193,5 @@ async def compute_reprocess_job(
         "total_output_reference_value": total_output_reference_value,
         "total_cost_to_allocate": total_cost_to_allocate,
         "efficiency_pct": efficiency_pct,
+        "gas_efficiency_pct": gas_efficiency_pct,
     }

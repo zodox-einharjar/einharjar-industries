@@ -4,7 +4,7 @@ from ..industry.shortfall import aggregate_project_needs
 from ..market.sell_book import walk_sell_book
 from ..models import FreightRoute, Location, MarketOrder
 from ..reprocessing.optimizer import solve_ore_lp
-from ..sde import portion_sizes, reprocessing_materials, reprocessing_sources, type_volumes
+from ..sde import gas_type_ids, portion_sizes, reprocessing_materials, reprocessing_sources, type_volumes
 
 _JITA_EVE_ID = 60003760
 
@@ -14,6 +14,7 @@ async def compute_project_sourcing(
     buyback_prices_by_type: dict[int, float],
     buyback_qty_by_type: dict[int, int],
     efficiency: float,
+    gas_efficiency: float,
     project_ids: list[int] | None = None,
     ignore_inventory: bool = False,
 ) -> dict:
@@ -31,6 +32,10 @@ async def compute_project_sourcing(
     regardless of which project claims it first — locations are solved biggest-shortfall
     first so the largest need gets first claim on the cheapest shared supply. Local
     market depth needs no such sharing; it's already location-specific.
+
+    gas_efficiency is used instead of efficiency for compressed-gas reprocess options —
+    gas can't be reprocessed at all in EVE, it's decompressed under its own Gas
+    Decompression Efficiency skill, independent of ore/ice's Reprocessing skills.
 
     project_ids/ignore_inventory pass straight through to aggregate_project_needs() —
     see there for what they do.
@@ -64,6 +69,7 @@ async def compute_project_sourcing(
     ore_name_by_id = {c["type_id"]: c["name"] for lst in compressed_by_material.values() for c in lst}
     ore_yields = reprocessing_materials(list(candidate_ore_ids)) if candidate_ore_ids else {}
     ore_portions = portion_sizes(list(candidate_ore_ids)) if candidate_ore_ids else {}
+    gas_ore_ids = gas_type_ids(list(candidate_ore_ids)) if candidate_ore_ids else set()
 
     all_source_type_ids = all_type_ids | candidate_ore_ids
 
@@ -175,13 +181,14 @@ async def compute_project_sourcing(
                 continue
             ore_name = ore_name_by_id.get(ore_id, f"[{ore_id}]")
             contributes_to = [name_by_id[t] for t in yields]
+            ore_efficiency = gas_efficiency if ore_id in gas_ore_ids else efficiency
 
             price = buyback_prices_by_type.get(ore_id)
             avail = buyback_remaining.get(ore_id, 0)
             if price is not None and avail >= portion:
                 options.append({
                     "type_id": ore_id, "name": ore_name, "unit_price": price,
-                    "portion": portion, "yields": yields, "efficiency": efficiency,
+                    "portion": portion, "yields": yields, "efficiency": ore_efficiency,
                     "max_batches": avail // portion, "channel": "buyback", "contributes_to": contributes_to,
                     "location_id": loc_id, "location_name": loc_name,
                 })
@@ -190,7 +197,7 @@ async def compute_project_sourcing(
                     continue
                 options.append({
                     "type_id": ore_id, "name": ore_name, "unit_price": float(o.price),
-                    "portion": portion, "yields": yields, "efficiency": efficiency,
+                    "portion": portion, "yields": yields, "efficiency": ore_efficiency,
                     "max_batches": o.volume_remain // portion, "channel": "local",
                     "location_id": loc_id, "location_name": loc_name, "contributes_to": contributes_to,
                 })
@@ -203,7 +210,7 @@ async def compute_project_sourcing(
                     landed = float(o.price) + float(vol) * float(route.isk_per_m3) + float(o.price) * float(route.value_pct)
                     options.append({
                         "type_id": ore_id, "name": ore_name, "unit_price": landed,
-                        "portion": portion, "yields": yields, "efficiency": efficiency,
+                        "portion": portion, "yields": yields, "efficiency": ore_efficiency,
                         "max_batches": remaining // portion, "channel": "jita",
                         "location_id": loc_id, "location_name": loc_name, "contributes_to": contributes_to,
                         "_jita_order_id": o.order_id,

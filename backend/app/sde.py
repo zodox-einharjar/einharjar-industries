@@ -159,6 +159,24 @@ def ore_type_ids(type_ids: list[int]) -> set[int]:
     return {row["typeID"] for row in rows}
 
 
+def gas_type_ids(type_ids: list[int]) -> set[int]:
+    """Subset of type_ids that are raw or compressed gas (groupID 711 "Harvestable
+    Cloud" raw, 4168 "Compressed Gas" compressed). Gas can't be reprocessed at all in
+    EVE — compressed gas is instead "decompressed" back to raw gas, a separate
+    mechanic governed by its own Gas Decompression Efficiency skill (not the ore/ice
+    Reprocessing / Reprocessing Efficiency skills), so its yield needs an independent
+    efficiency value from ore/ice's.
+    """
+    if not type_ids:
+        return set()
+    placeholders = ",".join("?" * len(type_ids))
+    rows = get_sde().execute(
+        f"SELECT typeID FROM invTypes WHERE typeID IN ({placeholders}) AND groupID IN (711, 4168)",
+        type_ids,
+    ).fetchall()
+    return {row["typeID"] for row in rows}
+
+
 def reprocessing_sources(material_type_ids: list[int]) -> dict[int, list[dict]]:
     """Reverse of reprocessing_materials(): for each mineral/material type_id, find the
     compressed ore/ice/gas items that reprocess into it. Returns {material_type_id:
