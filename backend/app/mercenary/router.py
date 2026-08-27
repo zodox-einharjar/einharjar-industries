@@ -9,9 +9,13 @@ from ..auth.deps import get_current_character
 from ..db import AsyncSessionLocal
 from ..esi.client import esi
 from ..models import Character, MercenaryDen, MercenaryOperation
-from ..sde import type_names
+from ..sde import type_names, type_volume
 
 router = APIRouter(prefix="/mercenary", dependencies=[Depends(get_current_character)])
+
+# Amount stored on a den's `infomorphs` counter is a count of Infomorph
+# Decryption Keys (type 85746) awaiting collection, not an abstract points value.
+_INFOMORPH_KEY_TYPE_ID = 85746
 
 # Development/anarchy bands are 20/20/30/30 (cumulative thresholds 20-40-70-100)
 # and both rise at a fixed 5 points per 24 hours — confirmed by the user, not
@@ -122,6 +126,7 @@ async def list_dens():
         planet_names = await esi.resolve_planet_names(list(planet_ids))
         corp_names = await esi.resolve_names(list(corp_ids))
         type_id_names = type_names(list({d.type_id for d in dens}))
+        infomorph_key_volume = type_volume(_INFOMORPH_KEY_TYPE_ID) or 0.0
 
         result = []
         for d in dens:
@@ -159,6 +164,7 @@ async def list_dens():
                 "anarchy_next_threshold": _next_level_threshold(anarchy_level) or 100,
                 "anarchy_next_level_at": anarchy_eta.isoformat() if anarchy_eta else None,
                 "infomorphs": d.infomorphs,
+                "infomorphs_m3": round(d.infomorphs * infomorph_key_volume, 2),
                 "infomorphs_rate_min": infomorph_rate_range[0] if infomorph_rate_range else None,
                 "infomorphs_rate_max": infomorph_rate_range[1] if infomorph_rate_range else None,
                 "reinforced_until": d.reinforced_until.isoformat() if d.reinforced_until else None,

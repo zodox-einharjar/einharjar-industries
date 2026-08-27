@@ -32,6 +32,7 @@ interface MercenaryDen {
   anarchy_next_threshold: number
   anarchy_next_level_at: string | null
   infomorphs: number
+  infomorphs_m3: number
   infomorphs_rate_min: number | null
   infomorphs_rate_max: number | null
   reinforced_until: string | null
@@ -357,6 +358,7 @@ export function MercenaryClient() {
                 />
                 <div className="text-[11px] text-muted">
                   Infomorphs: <span className="text-secondary font-mono">{d.infomorphs}</span>
+                  {' '}<span className="text-faint font-mono">({d.infomorphs_m3.toLocaleString()} m³)</span>
                   {d.infomorphs_rate_min != null && (
                     <span className="text-faint"> ({d.infomorphs_rate_min}–{d.infomorphs_rate_max}/hr)</span>
                   )}

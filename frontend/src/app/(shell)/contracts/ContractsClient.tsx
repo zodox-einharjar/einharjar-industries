@@ -35,7 +35,7 @@ interface Contract {
 type DirectionFilter = 'all' | 'outgoing' | 'incoming'
 type StatusFilter    = 'all' | 'active' | 'finished' | 'cancelled'
 type TypeFilter      = 'all' | 'courier' | 'item_exchange' | 'auction' | 'loan'
-type SortKey = 'type' | 'status' | 'title' | 'direction' | 'issuer' | 'value' | 'collateral' | 'volume' | 'issued' | 'expires'
+type SortKey = 'type' | 'status' | 'title' | 'direction' | 'issuer' | 'assignee' | 'value' | 'collateral' | 'volume' | 'issued' | 'expires'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -127,6 +127,7 @@ function sortValue(c: Contract, key: SortKey): string | number {
     case 'title':      return c.title ?? ''
     case 'direction':  return c.direction
     case 'issuer':     return c.issuer_name ?? String(c.issuer_id)
+    case 'assignee':   return c.assignee_name ?? (c.assignee_id != null ? String(c.assignee_id) : '')
     case 'value':      return contractPrimaryValue(c) ?? -1
     case 'collateral': return c.collateral ?? -1
     case 'volume':     return c.volume ?? -1
@@ -302,6 +303,7 @@ export function ContractsClient() {
                 <SortTh label="Title"      sortKey="title"      current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTh label="Direction"  sortKey="direction"  current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTh label="Issuer"     sortKey="issuer"     current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Assignee"   sortKey="assignee"   current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTh label="Value"      sortKey="value"      current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTh label="Collateral" sortKey="collateral" current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTh label="Volume"     sortKey="volume"     current={sortKey} dir={sortDir} onSort={handleSort} />
@@ -342,6 +344,15 @@ export function ContractsClient() {
                       <span className="block truncate" title={c.issuer_name ?? String(c.issuer_id)}>
                         {c.issuer_name ?? <span className="text-faint font-mono">{c.issuer_id}</span>}
                       </span>
+                    </td>
+                    <td className={`${TD} text-muted max-w-[140px]`}>
+                      {c.assignee_id == null ? (
+                        <span className="text-faint">—</span>
+                      ) : (
+                        <span className="block truncate" title={c.assignee_name ?? String(c.assignee_id)}>
+                          {c.assignee_name ?? <span className="text-faint font-mono">{c.assignee_id}</span>}
+                        </span>
+                      )}
                     </td>
                     <td className={`${TD} font-mono text-secondary whitespace-nowrap`}>
                       {primaryValue != null ? `${iska(primaryValue)} ISK` : '—'}
