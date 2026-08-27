@@ -894,7 +894,18 @@ const _LINKED_STATUS_COLOR: Record<string, string> = {
 function JobRow({ job, projectId, onRefresh }: { job: Job; projectId: number; onRefresh: () => void }) {
   const [editing, setEditing] = useState(false)
   const [costVal, setCostVal] = useState(String(job.manual_job_cost))
+  const [copiedField, setCopiedField] = useState<'name' | 'runs' | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  async function copyField(field: 'name' | 'runs', value: string) {
+    try {
+      await copyText(value)
+      setCopiedField(field)
+      setTimeout(() => setCopiedField(null), 1000)
+    } catch {
+      // clipboard write failed — nothing to show the user, just skip the flash
+    }
+  }
 
   async function toggleDone() {
     await fetch(`/api/industry/${projectId}/jobs/${job.id}`, {
@@ -929,7 +940,10 @@ function JobRow({ job, projectId, onRefresh }: { job: Job; projectId: number; on
                className="w-3.5 h-3.5 cursor-pointer accent-[var(--accent)]" />
       </td>
       <td className={`px-4 py-2 ${job.is_done ? 'line-through text-muted' : 'text-primary'}`}>
-        {job.name}
+        <button onClick={() => copyField('name', job.name)}
+                className="hover:text-accent transition-colors text-left" title="Click to copy name">
+          {copiedField === 'name' ? 'Copied!' : job.name}
+        </button>
         {job.linked_job && (
           <span
             className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide border ${_LINKED_STATUS_COLOR[job.linked_job.status] ?? 'border-wire text-muted'}`}
@@ -945,7 +959,12 @@ function JobRow({ job, projectId, onRefresh }: { job: Job; projectId: number; on
           </button>
         )}
       </td>
-      <td className="px-4 py-2 text-right tabular-nums text-muted">{job.runs}</td>
+      <td className="px-4 py-2 text-right tabular-nums text-muted">
+        <button onClick={() => copyField('runs', String(job.runs))}
+                className="hover:text-accent transition-colors" title="Click to copy run count">
+          {copiedField === 'runs' ? 'Copied!' : job.runs}
+        </button>
+      </td>
       <td className="px-4 py-2 text-right tabular-nums text-muted">{job.days.toFixed(2)}</td>
       <td className="px-4 py-2 text-right tabular-nums">
         {editing ? (
