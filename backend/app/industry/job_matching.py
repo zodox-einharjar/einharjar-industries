@@ -6,6 +6,11 @@ from ..sde import type_id_by_name
 
 _MATCHABLE_STATUSES = ("active", "paused", "ready")
 _UNLINK_STATUSES = ("cancelled", "reverted")
+# ProjectJob rows always represent a production step (manufacturing/reaction) —
+# never copying/invention/research — so only these activities are eligible to
+# match, even though they can share a blueprint_type_id with a copy/invention
+# job on the same blueprint.
+_MATCHABLE_ACTIVITIES = (1, 9)  # Manufacturing, Reactions
 
 
 async def relink_project_jobs(session, project_ids: list[int] | None = None) -> dict:
@@ -35,7 +40,10 @@ async def relink_project_jobs(session, project_ids: list[int] | None = None) -> 
     )).scalars().all())
 
     ijobs = (await session.execute(
-        select(IndustryJob).where(IndustryJob.status.in_(_MATCHABLE_STATUSES))
+        select(IndustryJob).where(
+            IndustryJob.status.in_(_MATCHABLE_STATUSES),
+            IndustryJob.activity_id.in_(_MATCHABLE_ACTIVITIES),
+        )
     )).scalars().all()
     ijobs = [j for j in ijobs if j.id not in globally_linked]
 
