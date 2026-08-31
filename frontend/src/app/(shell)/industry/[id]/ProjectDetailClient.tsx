@@ -934,7 +934,7 @@ function JobRow({ job, projectId, onRefresh }: { job: Job; projectId: number; on
   }
 
   return (
-    <tr className={`border-b border-wire last:border-0 ${job.is_done ? 'opacity-50' : ''}`}>
+    <tr className={`border-b border-wire last:border-0 hover:bg-surface-hi ${job.is_done ? 'opacity-50' : ''}`}>
       <td className="px-4 py-2">
         <input type="checkbox" checked={job.is_done} onChange={toggleDone}
                className="w-3.5 h-3.5 cursor-pointer accent-[var(--accent)]" />
