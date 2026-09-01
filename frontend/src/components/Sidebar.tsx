@@ -13,7 +13,10 @@ interface User {
 
 const NAV = [
   {
-    items: [{ label: 'Dashboard', href: '/' }],
+    items: [
+      { label: 'Dashboard', href: '/' },
+      { label: 'Character', href: '/character' },
+    ],
   },
   {
     label: 'Fleet',

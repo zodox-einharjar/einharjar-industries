@@ -230,6 +230,23 @@ def station_name(station_id: int) -> str | None:
     return row["stationName"] if row else None
 
 
+def system_name(system_id: int) -> str | None:
+    row = get_sde().execute(
+        "SELECT solarSystemName FROM mapSolarSystems WHERE solarSystemID = ?", (system_id,)
+    ).fetchone()
+    return row["solarSystemName"] if row else None
+
+
+def type_group_ids(type_ids: list[int]) -> dict[int, int]:
+    if not type_ids:
+        return {}
+    placeholders = ",".join("?" * len(type_ids))
+    rows = get_sde().execute(
+        f"SELECT typeID, groupID FROM invTypes WHERE typeID IN ({placeholders})", type_ids
+    ).fetchall()
+    return {row["typeID"]: row["groupID"] for row in rows}
+
+
 def type_id_by_name(name: str) -> int | None:
     row = get_sde().execute(
         "SELECT typeID FROM invTypes WHERE typeName = ?", (name,)
