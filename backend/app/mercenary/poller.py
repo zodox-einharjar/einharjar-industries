@@ -47,14 +47,6 @@ async def _poll_char_dens(char_id: int) -> dict:
                 token=token,
                 compat=True,
             )
-            dens = []
-            for entry in listing["mercenary_dens"]:
-                detail = await esi.get(
-                    f"/characters/{char.character_id}/structures/mercenary-dens/{entry['id']}",
-                    token=token,
-                    compat=True,
-                )
-                dens.append({**entry, **detail})
         except TokenExpiredError as e:
             logger.warning("Skipping mercenary dens for %s: %s", char.character_name, e)
             return {"count": 0}
@@ -64,6 +56,26 @@ async def _poll_char_dens(char_id: int) -> dict:
         except Exception:
             logger.exception("Unexpected error polling mercenary dens for %s", char.character_name)
             return {"count": 0}
+
+        # Listed ids are the source of truth for "still exists" even if a
+        # per-den detail fetch below fails transiently — only dropping a den
+        # from the listing itself means it's actually gone.
+        listing_ids = [entry["id"] for entry in listing["mercenary_dens"]]
+        dens = []
+        for entry in listing["mercenary_dens"]:
+            try:
+                detail = await esi.get(
+                    f"/characters/{char.character_id}/structures/mercenary-dens/{entry['id']}",
+                    token=token,
+                    compat=True,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Skipping mercenary den %s for %s: failed to fetch detail (%s)",
+                    entry["id"], char.character_name, e,
+                )
+                continue
+            dens.append({**entry, **detail})
 
         now = datetime.now(timezone.utc)
         seen_ids = [d["id"] for d in dens]
@@ -133,7 +145,7 @@ async def _poll_char_dens(char_id: int) -> dict:
         await session.execute(
             delete(MercenaryDen).where(
                 MercenaryDen.character_id == char.id,
-                ~MercenaryDen.den_id.in_(seen_ids),
+                ~MercenaryDen.den_id.in_(listing_ids),
             )
         )
         await session.commit()
