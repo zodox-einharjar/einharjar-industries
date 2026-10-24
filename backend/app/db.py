@@ -37,4 +37,6 @@ _COLUMN_MIGRATIONS = [
     "ALTER TABLE project_jobs ADD COLUMN IF NOT EXISTS industry_job_id INTEGER REFERENCES industry_jobs(id) ON DELETE SET NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_project_jobs_industry_job_id ON project_jobs(industry_job_id) WHERE industry_job_id IS NOT NULL",
     "ALTER TABLE mercenary_dens ADD COLUMN IF NOT EXISTS deployed_at TIMESTAMPTZ",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS discord_notified_accepted BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS discord_notified_finished BOOLEAN NOT NULL DEFAULT false",
 ]

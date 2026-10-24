@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..auth.tokens import TokenExpiredError, get_valid_token
@@ -192,6 +192,76 @@ async def _notify_assigned_contracts() -> None:
         await session.commit()
 
 
+_FINISHED_STATUSES = ("finished", "finished_issuer", "finished_contractor")
+
+
+def _format_outgoing_event_message(contract: Contract, event: str, counterparty_name: str) -> str:
+    from ..templates import _fmt_iska
+
+    amount = contract.price or contract.reward
+    label = "accepted" if event == "accepted" else "finished"
+    parts = [f"**Contract {label}** — {contract.type} by {counterparty_name}"]
+    if contract.title:
+        parts.append(contract.title)
+    if amount:
+        parts.append(f"{_fmt_iska(amount)} ISK")
+    return " · ".join(parts)
+
+
+async def _notify_outgoing_contract_events() -> None:
+    async with AsyncSessionLocal() as session:
+        chars = (await session.execute(select(Character))).scalars().all()
+        our_char_ids = {c.character_id for c in chars}
+        our_corp_ids = {c.corporation_id for c in chars if c.corporation_id}
+        if not our_char_ids and not our_corp_ids:
+            return
+
+        conditions = [Contract.issuer_id.in_(our_char_ids)]
+        if our_corp_ids:
+            conditions.append(Contract.issuer_corporation_id.in_(our_corp_ids))
+        outgoing_filter = or_(*conditions)
+
+        accepted = (await session.execute(
+            select(Contract).where(
+                outgoing_filter,
+                Contract.status == "in_progress",
+                Contract.discord_notified_accepted.is_(False),
+            )
+        )).scalars().all()
+
+        finished = (await session.execute(
+            select(Contract).where(
+                outgoing_filter,
+                Contract.status.in_(_FINISHED_STATUSES),
+                Contract.discord_notified_finished.is_(False),
+            )
+        )).scalars().all()
+
+        events = [("accepted", c) for c in accepted] + [("finished", c) for c in finished]
+        if not events:
+            return
+
+        char_name_by_id = {c.character_id: c.character_name for c in chars}
+        unknown_ids = {
+            c.acceptor_id for _, c in events
+            if c.acceptor_id and c.acceptor_id not in char_name_by_id
+        }
+        resolved = await esi.resolve_names(list(unknown_ids))
+        names = {**char_name_by_id, **resolved}
+
+        for event, contract in events:
+            if contract.acceptor_id:
+                counterparty = names.get(contract.acceptor_id, f"acceptor:{contract.acceptor_id}")
+            else:
+                counterparty = "someone"
+            await notifier.notify(_format_outgoing_event_message(contract, event, counterparty))
+            if event == "accepted":
+                contract.discord_notified_accepted = True
+            else:
+                contract.discord_notified_finished = True
+        await session.commit()
+
+
 async def poll_contracts() -> dict:
     enabled_chars = await _get_enabled_ids("poll_char_contracts")
     enabled_corps = await _get_enabled_ids("poll_corp_contracts")
@@ -230,7 +300,6 @@ async def poll_contracts() -> dict:
             polled_corps.add(char.corporation_id)
 
     await _notify_assigned_contracts()
-
-    return totals
+    await _notify_outgoing_contract_events()
 
     return totals
