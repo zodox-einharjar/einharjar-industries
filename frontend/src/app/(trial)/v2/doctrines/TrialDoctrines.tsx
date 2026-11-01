@@ -92,8 +92,7 @@ interface FitRow {
 }
 
 /** One row per fit per staging location. A fit used by several doctrines at the
- *  same location draws on the same market stock, so targets are summed against
- *  one shared stock figure instead of each doctrine claiming the full stock. */
+ *  same location is one stock of ships, so it counts once at its highest target. */
 function poolFits(fits: FleetFit[]): FitRow[] {
   const rows: FitRow[] = []
   for (const f of fits) {
@@ -106,7 +105,7 @@ function poolFits(fits: FleetFit[]): FitRow[] {
       }
       row.doctrines.push(d.doctrine_name)
       row.dfIds.push(d.df_id)
-      row.target += d.target_qty
+      row.target = Math.max(row.target, d.target_qty)
       row.stock = Math.max(row.stock, d.stock ?? 0)
       byLoc.set(loc, row)
     }
@@ -226,11 +225,11 @@ function ItemsView({ items, query, shortOnly }: { items: FleetItem[]; query: str
         </thead>
         <tbody>
           {rows.map(i => {
-            // The endpoint lists a fit once per doctrine; merge those into one entry.
+            // One entry per fit; a fit shared by several doctrines counts at its highest target.
             const fits = new Map<number, { name: string; perFit: number; target: number }>()
             for (const f of i.fits) {
               const e = fits.get(f.fit_id) ?? { name: f.fit_name, perFit: f.qty_per_fit, target: 0 }
-              e.target += f.target
+              e.target = Math.max(e.target, f.target)
               fits.set(f.fit_id, e)
             }
             const fitList = [...fits.values()]

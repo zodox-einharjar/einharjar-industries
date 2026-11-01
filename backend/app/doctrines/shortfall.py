@@ -21,7 +21,8 @@ async def aggregate_shortfalls(
 
     Need is pooled across every included fit at a staging location before local
     stock is subtracted — stock is shared, so summing per-fit shortfalls would
-    undercount (fits needing 10 + 25 with 5 on market is 30 short, not 25).
+    undercount (fits needing 10 + 25 with 5 on market is 30 short, not 25). A fit
+    used by several doctrines at the same location counts once, at its highest target.
 
     doctrine_fit_ids restricts to those DoctrineFit rows (None = all). fill_pct
     scales every target (0.5 = stock to half of target).
@@ -38,13 +39,25 @@ async def aggregate_shortfalls(
         if doctrine_fit_ids is None or df.id in doctrine_fit_ids
     ]
 
+    # The same fit in several doctrines at one location is one stock of ships, so it
+    # counts once at its highest target. Different fits sharing an item add up.
+    fit_target: dict[tuple[int, int], int] = {}
+    fit_by_key: dict[tuple[int, int], object] = {}
+    fit_refs: dict[tuple[int, int], set] = {}
+    for d, df in included:
+        k = (d.location_id, df.fit.id)
+        fit_target[k] = max(fit_target.get(k, 0), df.target_qty)
+        fit_by_key[k] = df.fit
+        fit_refs.setdefault(k, set()).add((d.name, df.fit.name))
+
     need: dict[tuple[int, int], float] = {}
     refs: dict[tuple[int, int], set] = {}
-    for d, df in included:
-        for item in df.fit.items:
-            key = (d.location_id, item.type_id)
-            need[key] = need.get(key, 0) + item.quantity * df.target_qty * fill_pct
-            refs.setdefault(key, set()).add((d.name, df.fit.name))
+    for (loc_id, _), fit in fit_by_key.items():
+        target = fit_target[(loc_id, fit.id)]
+        for item in fit.items:
+            key = (loc_id, item.type_id)
+            need[key] = need.get(key, 0) + item.quantity * target * fill_pct
+            refs.setdefault(key, set()).update(fit_refs[(loc_id, fit.id)])
 
     if not need:
         return {}

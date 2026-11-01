@@ -1146,6 +1146,17 @@ async def fleet_items():
         item_names = type_names(list(all_type_ids))
         item_pool: dict[tuple[int, int], dict] = {}
 
+        # The same fit in several doctrines at one staging location is one stock of
+        # ships, not several: count it once, at its highest target. Different fits
+        # that share an item still add up.
+        fit_target: dict[tuple[int, int], int] = {}
+        for doctrine in doctrines:
+            if doctrine.location_id:
+                for df in doctrine.doctrine_fits:
+                    k = (doctrine.location_id, df.fit.id)
+                    fit_target[k] = max(fit_target.get(k, 0), df.target_qty)
+        counted: set[tuple[int, int]] = set()
+
         for doctrine in doctrines:
             if not doctrine.location_id:
                 continue
@@ -1154,9 +1165,13 @@ async def fleet_items():
             staging_by_type = staging_by_loc.get(staging_id, {})
 
             for df in doctrine.doctrine_fits:
+                if (staging_id, df.fit.id) in counted:
+                    continue
+                counted.add((staging_id, df.fit.id))
+                target = fit_target[(staging_id, df.fit.id)]
                 for item in df.fit.items:
                     key = (staging_id, item.type_id)
-                    qty_needed = item.quantity * df.target_qty
+                    qty_needed = item.quantity * target
                     s_orders = staging_by_type.get(item.type_id, [])
                     j_orders = jita_by_type.get(item.type_id, [])
                     qty_available = sum(o.volume_remain for o in s_orders)
@@ -1191,7 +1206,7 @@ async def fleet_items():
                         "fit_id": df.fit.id,
                         "fit_name": df.fit.name,
                         "qty_per_fit": item.quantity,
-                        "target": df.target_qty,
+                        "target": target,
                     })
 
     result = []
