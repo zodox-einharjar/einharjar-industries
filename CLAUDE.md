@@ -36,6 +36,10 @@ docker compose up --build             # http://localhost — log in again with t
 - The Discord bot is behind the `discord` compose profile and Discord vars are unset, so no notifications
   are sent from local dev.
 - `backend/.env` is a symlink to `../.env.dev`, so local Python scripts hit the dev DB too.
+- `/auth/dev-login?character=<name|id>&next=<path>` signs in without EVE SSO. It only works when
+  `.env.dev` sets `DEV_LOGIN_ENABLED=true` **and** the DB name ends in `_dev` (404 otherwise).
+- `python3 scripts/dev_screenshot.py /v2/buying out.png [--full] [--width 2560 --height 1440]` signs in
+  through dev-login and screenshots a page in headless Firefox after its data has loaded.
 
 ### SDE update (run once, then whenever CCP patches)
 

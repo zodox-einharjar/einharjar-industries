@@ -25,5 +25,9 @@ class Settings(BaseSettings):
     discord_notify_channel_id: str = ""
     discord_allowed_user_id: str = ""  # only this Discord user ID may invoke slash commands
 
+    # Local development only: enables /auth/dev-login, which signs in as an existing
+    # character without EVE SSO. Also refused unless the database name ends in "_dev".
+    dev_login_enabled: bool = False
+
 
 settings = Settings()

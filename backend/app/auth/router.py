@@ -177,6 +177,36 @@ async def callback(request: Request, code: str, state: str) -> RedirectResponse:
     return RedirectResponse("/")
 
 
+def _dev_login_allowed() -> bool:
+    db_name = settings.database_url.rsplit("/", 1)[-1].split("?", 1)[0]
+    return settings.dev_login_enabled and db_name.endswith("_dev")
+
+
+@router.get("/dev-login")
+async def dev_login(request: Request, character: str | None = None) -> RedirectResponse:
+    """Sign in as a character already in the database, skipping EVE SSO — lets a local
+    headless browser open the app for testing. Answers 404 unless DEV_LOGIN_ENABLED is
+    set and the app is pointed at a *_dev database, so it can't work in production."""
+    if not _dev_login_allowed():
+        raise HTTPException(status_code=404)
+    async with AsyncSessionLocal() as session:
+        query = select(Character).order_by(Character.id)
+        if character:
+            query = query.where(
+                Character.character_name.ilike(character)
+                | (Character.character_id == int(character) if character.isdigit() else False)
+            )
+        char = (await session.execute(query)).scalars().first()
+    if char is None:
+        raise HTTPException(status_code=404, detail="No matching character in the database")
+    request.session["character_owner_hash"] = char.character_owner_hash
+    target = request.query_params.get("next") or "/"
+    # Only same-site paths, so this can't be used to bounce a browser elsewhere.
+    if not target.startswith("/") or target.startswith("//"):
+        target = "/"
+    return RedirectResponse(target)
+
+
 @router.get("/logout")
 async def logout(request: Request) -> RedirectResponse:
     request.session.clear()
