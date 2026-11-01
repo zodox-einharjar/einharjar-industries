@@ -432,3 +432,19 @@ class MercenaryNotification(Base):
     type: Mapped[str] = mapped_column(Text, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     discord_notified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+
+
+class WalletSnapshot(Base):
+    """A wallet balance at a point in time, for the dashboard wallet chart.
+
+    source is "char:<character_id>" or "corp:<corporation_id>:<division>". Rows come
+    from the periodic balance poll and, once per source, from the wallet journal
+    (each journal entry records the balance after it) to fill in recent history.
+    """
+    __tablename__ = "wallet_snapshots"
+    __table_args__ = (Index("ix_wallet_snapshots_source_ts", "source", "ts", unique=True),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    balance: Mapped[Decimal] = mapped_column(Numeric(22, 2), nullable=False)

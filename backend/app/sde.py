@@ -1,3 +1,4 @@
+import re
 import sqlite3
 from functools import lru_cache
 from .config import settings
@@ -260,6 +261,29 @@ def station_by_name(name: str) -> tuple[int, int] | None:
         "SELECT stationID, regionID FROM staStations WHERE stationName = ?", (name,)
     ).fetchone()
     return (row["stationID"], row["regionID"]) if row else None
+
+
+def search_stations(query: str, limit: int = 15) -> list[dict]:
+    """NPC stations whose name contains every word of `query` (case-insensitive),
+    names starting with the first word first. "jita 4" finds "Jita IV - Moon 4 - ..."."""
+    words = query.split()
+    if not words:
+        return []
+    where = " AND ".join("stationName LIKE ?" for _ in words)
+    rows = get_sde().execute(
+        f"""SELECT stationID, stationName, solarSystemID, regionID FROM staStations
+            WHERE {where} ORDER BY (stationName LIKE ?) DESC, length(stationName) LIMIT ?""",
+        (*[f"%{w}%" for w in words], f"{words[0]}%", limit * 4),
+    ).fetchall()
+    # Rank whole-word matches above partial ones, so "4" prefers "Moon 4" over "Moon 14".
+    def score(name: str) -> tuple:
+        tokens = set(re.split(r"[\s\-]+", name.lower()))
+        return (-sum(w.lower() in tokens for w in words), not name.lower().startswith(words[0].lower()), len(name))
+    rows = sorted(rows, key=lambda r: score(r["stationName"]))[:limit]
+    return [
+        {"eve_id": r["stationID"], "name": r["stationName"], "system_id": r["solarSystemID"], "region_id": r["regionID"]}
+        for r in rows
+    ]
 
 
 def type_categories(type_ids: list[int]) -> dict[int, str]:
