@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { useRouteBase } from '@/lib/route-base'
 
 const CATEGORIES = [
   'Intermediate Composite Reactions',
@@ -21,6 +22,7 @@ interface Location {
 
 export function NewProjectClient({ locations }: { locations: Location[] }) {
   const router = useRouter()
+  const base = useRouteBase()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeJobCat, setActiveJobCat] = useState(CATEGORIES[0])
@@ -122,7 +124,7 @@ export function NewProjectClient({ locations }: { locations: Location[] }) {
       setError('Project created with warnings:\n' + warnings.join('\n'))
     }
 
-    router.push(`/industry/${id}`)
+    router.push(`${base}/industry/${id}`)
   }
 
   return (

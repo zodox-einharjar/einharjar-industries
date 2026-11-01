@@ -570,3 +570,52 @@
   .v2-top.three > :last-child { grid-column: auto; }
 }
 .v2-rows.compact li { padding: 6px 0; }
+
+/* ── Ported classic pages ─────────────────────────────────────────────
+   The classic components style themselves through a few CSS variables (see
+   globals.css / tailwind.config.ts). Inside the trial those variables point at
+   the trial palette, so reused pages pick up the new look without being rewritten. */
+
+.v2 {
+  --bg: var(--hull);
+  --surface: var(--plate);
+  --surface-raised: #2a313c;
+  --border: var(--seam);
+  --border-subtle: #2a313b;
+  --text-primary: var(--bone);
+  --text-secondary: #d4cfc2;
+  --text-muted: var(--dust);
+  --text-faint: var(--dim);
+  --accent: var(--brass);
+  --green: var(--sage);
+  --yellow: var(--brass);
+  --red: var(--flare);
+}
+
+/* Trial type in reused pages: body face for figures instead of monospace, sentence
+   case instead of tracked caps, and the tiny classic sizes nudged up. */
+.v2-port { font-size: 14px; }
+.v2-port .font-mono { font-family: var(--font-body), system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.v2-port .uppercase { text-transform: none; }
+.v2-port [class*="tracking-"] { letter-spacing: normal; }
+.v2-port .text-\[10px\] { font-size: 12px; }
+.v2-port .text-\[11px\] { font-size: 12.5px; }
+.v2-port .text-\[12px\] { font-size: 13.5px; }
+.v2-port .text-\[13px\] { font-size: 14px; }
+.v2-port h1, .v2-port h2, .v2-port h3 { font-family: var(--font-display), sans-serif; }
+
+/* Page heading for ported pages: title, sub-page tabs, and the page's own buttons. */
+.v2-pagehead { margin-bottom: 20px; }
+.v2-pagehead .v2-tabs a { color: var(--dust); font-size: 14px; padding: 6px 14px; }
+.v2-pagehead .v2-tabs a + a { border-left: 1px solid var(--seam); }
+.v2-pagehead .v2-tabs a:hover { color: var(--bone); }
+.v2-pagehead .v2-tabs a[aria-current="page"] { background: var(--plate); color: var(--bone); box-shadow: inset 0 -2px 0 var(--brass); }
+.v2-pagehead > a { color: var(--brass); font-size: 14px; }
+.v2-pagehead > a:hover { text-decoration: underline; }
+.v2-pagehead-actions { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+
+/* A few classic components use fixed Tailwind colours instead of the theme
+   variables; map those onto the trial palette too. */
+.v2-port .bg-green-500, .v2-port .bg-green-600, .v2-port .hover\:bg-green-500:hover { background-color: var(--sage); color: var(--hull); }
+.v2-port .text-green-400 { color: var(--sage); }
+.v2-port .bg-red-500 { background-color: var(--flare); }

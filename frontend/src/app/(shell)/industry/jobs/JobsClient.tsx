@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { useTopbarActions } from '@/lib/topbar-context'
+import { useRouteBase } from '@/lib/route-base'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -161,6 +162,7 @@ export function JobsClient() {
   const [sortDir, setSortDir]         = useState<'asc' | 'desc'>('asc')
 
   const { setActions } = useTopbarActions()
+  const base = useRouteBase()
 
   const load = useCallback(async () => {
     try {
@@ -295,7 +297,7 @@ export function JobsClient() {
                       )}
                       {j.project_id && (
                         <Link
-                          href={`/industry/${j.project_id}`}
+                          href={`${base}/industry/${j.project_id}`}
                           className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-accent/40 bg-accent/10 text-[10px] text-accent hover:bg-accent/20 truncate max-w-full"
                           title={`Linked to project: ${j.project_name}`}
                         >

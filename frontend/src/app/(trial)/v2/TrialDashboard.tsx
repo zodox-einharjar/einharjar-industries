@@ -250,37 +250,37 @@ export function TrialDashboard() {
       key: `den-${d.id}`, severity: 'danger' as const,
       what: `${d.type_name ?? 'Mercenary den'} is reinforced`,
       where: `${d.planet_name ?? 'Unknown planet'}, comes out in ${until(d.reinforced_until!)}`,
-      act: 'Open dens', href: '/mercenary',
+      act: 'Open dens', href: '/v2/mercenary',
     })),
     ...(report && pollMinutes != null && marketStale(report.last_poll, report.next_poll) ? [{
       key: 'poll', severity: 'warn' as const,
       what: 'Market data is out of date',
       where: `Last updated ${agoText(pollMinutes)}, stock figures may be wrong`,
-      act: 'Check status', href: '/settings',
+      act: 'Check status', href: '/v2/settings',
     }] : []),
     ...incoming.map(c => ({
       key: `contract-${c.contract_id}`, severity: 'warn' as const,
       what: `Contract from ${c.issuer_name ?? 'an unknown pilot'} is waiting on you`,
       where: `Worth ${isk(c.price ?? c.reward)} ISK`,
-      act: 'Review', href: '/contracts',
+      act: 'Review', href: '/v2/contracts',
     })),
     ...undercut.map(l => ({
       key: `listing-${l.order_id}`, severity: 'warn' as const,
       what: `Your ${l.item_name} order was undercut`,
       where: `Listed at ${isk(l.list_price)} in ${l.location_name}, lowest is now ${isk(l.market_low)}`,
-      act: 'Reprice', href: '/market-orders',
+      act: 'Reprice', href: '/v2/market-orders',
     })),
     ...(deliverable.length > 0 ? [{
       key: 'jobs-ready', severity: 'warn' as const,
       what: `${deliverable.length} industry job${deliverable.length === 1 ? ' is' : 's are'} ready to deliver`,
       where: groupNames(deliverable.map(j => j.product_name ?? j.blueprint_name ?? 'Job')),
-      act: 'View jobs', href: '/industry/jobs',
+      act: 'View jobs', href: '/v2/industry/jobs',
     }] : []),
     ...dens.filter(d => !d.reinforced_until && anarchyTier(d.anarchy_level, d.anarchy_amount) === 'red').map(d => ({
       key: `anarchy-${d.id}`, severity: 'warn' as const,
       what: `Anarchy is high at ${d.type_name ?? 'a den'}`,
       where: d.planet_name ?? '',
-      act: 'Open dens', href: '/mercenary',
+      act: 'Open dens', href: '/v2/mercenary',
     })),
   ].sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'danger' ? -1 : 1))
 
@@ -397,7 +397,7 @@ export function TrialDashboard() {
         <section className="v2-panel" aria-labelledby="orders-title">
           <div className="v2-panel-head">
             <h2 id="orders-title">Market orders</h2>
-            <Link href="/market-orders">All orders</Link>
+            <Link href="/v2/market-orders">All orders</Link>
           </div>
           <p className="v2-panel-sum">
             {listings.length} order{listings.length === 1 ? '' : 's'} worth {isk(listedValue)} ISK
@@ -430,7 +430,7 @@ export function TrialDashboard() {
         <section className="v2-panel" aria-labelledby="contracts-title">
           <div className="v2-panel-head">
             <h2 id="contracts-title">Contracts</h2>
-            <Link href="/contracts">All contracts</Link>
+            <Link href="/v2/contracts">All contracts</Link>
           </div>
           <p className="v2-panel-sum">
             {outstanding.length} open, worth {isk(contractValue)} ISK
@@ -466,7 +466,7 @@ export function TrialDashboard() {
         <section className="v2-panel" aria-labelledby="jobs-title">
           <div className="v2-panel-head">
             <h2 id="jobs-title">Industry</h2>
-            <Link href="/industry/jobs">All jobs</Link>
+            <Link href="/v2/industry/jobs">All jobs</Link>
           </div>
           {running.length === 0 ? (
             <p className="v2-empty">No jobs running. Start one in game and it shows up here after the next sync.</p>
@@ -496,7 +496,7 @@ export function TrialDashboard() {
         <section className="v2-panel" aria-labelledby="dens-title">
           <div className="v2-panel-head">
             <h2 id="dens-title">Mercenary dens</h2>
-            <Link href="/mercenary">All dens</Link>
+            <Link href="/v2/mercenary">All dens</Link>
           </div>
           {sortedDens.length === 0 ? (
             <p className="v2-empty">No dens tracked yet.</p>

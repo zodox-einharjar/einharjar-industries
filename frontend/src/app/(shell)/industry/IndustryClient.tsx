@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { useRouteBase } from '@/lib/route-base'
 
 interface Project {
   id: number
@@ -37,6 +38,7 @@ function isk(n: number) {
 }
 
 export function IndustryClient({ initialProjects }: { initialProjects: Project[] }) {
+  const base = useRouteBase()
   const router = useRouter()
   const [projects, setProjects] = useState(initialProjects)
 
@@ -54,7 +56,7 @@ export function IndustryClient({ initialProjects }: { initialProjects: Project[]
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-primary">Industry Projects</h1>
         <Link
-          href="/industry/new"
+          href={`${base}/industry/new`}
           className="px-3 py-1.5 text-[13px] bg-accent text-canvas rounded hover:bg-accent/90 transition-colors"
         >
           New Project
@@ -64,7 +66,7 @@ export function IndustryClient({ initialProjects }: { initialProjects: Project[]
       {projects.length === 0 && (
         <div className="text-center py-16 text-muted text-[13px]">
           No projects yet.{' '}
-          <Link href="/industry/new" className="text-accent hover:underline">
+          <Link href={`${base}/industry/new`} className="text-accent hover:underline">
             Create your first project
           </Link>
         </div>
@@ -95,6 +97,7 @@ function ProjectTable({
   projects: Project[]
   onDelete: (id: number) => void
 }) {
+  const base = useRouteBase()
   return (
     <div className="bg-surface border border-wire rounded-lg overflow-hidden">
       <table className="w-full text-[13px]">
@@ -112,7 +115,7 @@ function ProjectTable({
           {projects.map(p => (
             <tr key={p.id} className="border-b border-wire last:border-0 hover:bg-surface-hi">
               <td className="px-4 py-3">
-                <Link href={`/industry/${p.id}`} className="text-accent hover:underline font-medium">
+                <Link href={`${base}/industry/${p.id}`} className="text-accent hover:underline font-medium">
                   {p.name}
                 </Link>
                 <div className="text-[11px] text-faint mt-0.5">

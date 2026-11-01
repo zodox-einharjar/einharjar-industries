@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation'
 import { Archivo, Big_Shoulders_Display } from 'next/font/google'
 import { getCurrentUser } from '@/lib/auth'
 import { TopNav } from './v2/_shared/TopNav'
+import { RouteBaseProvider } from '@/lib/route-base'
+import { TopbarProvider } from '@/lib/topbar-context'
 import './trial.css'
 
 // Trial frontend: its own fonts, tokens and chrome, isolated from the (shell) app
@@ -30,7 +32,13 @@ export default async function TrialLayout({ children }: { children: React.ReactN
           <span>{user.character_name}</span>
         </Link>
       </header>
-      <main className="v2-main">{children}</main>
+      <main className="v2-main">
+        {/* Classic page components reused here put toolbar buttons in the topbar slot
+            and link between pages relative to the route base. */}
+        <RouteBaseProvider base="/v2">
+          <TopbarProvider>{children}</TopbarProvider>
+        </RouteBaseProvider>
+      </main>
     </div>
   )
 }

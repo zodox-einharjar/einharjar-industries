@@ -3,13 +3,14 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-// Trial pages first; Industry and Market still go to the classic app until ported.
 const LINKS = [
   { href: '/v2', label: 'Dashboard', exact: true },
   { href: '/v2/doctrines', label: 'Doctrines' },
   { href: '/v2/buying', label: 'Buying' },
-  { href: '/industry', label: 'Industry' },
-  { href: '/market-orders', label: 'Market' },
+  { href: '/v2/industry', label: 'Industry' },
+  { href: '/v2/market-orders', label: 'Market orders' },
+  { href: '/v2/contracts', label: 'Contracts' },
+  { href: '/v2/mercenary', label: 'Mercenary dens' },
 ]
 
 export function TopNav() {
