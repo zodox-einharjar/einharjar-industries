@@ -88,10 +88,19 @@ export function sortDoctrines(list: DoctrineSummary[]): DoctrineSummary[] {
   })
 }
 
-export function MarketFreshness({ lastPoll }: { lastPoll: string | null }) {
+/** Market data is stale once the scheduled poll is overdue by more than 10 minutes
+ *  (so a 30-minute interval doesn't read as stale after 15). Without a schedule,
+ *  anything older than an hour counts. */
+export function marketStale(lastPoll: string | null, nextPoll?: string | null): boolean {
+  if (!lastPoll) return true
+  if (nextPoll) return minutesSince(nextPoll) > 10  // minutes the scheduled poll is overdue
+  return minutesSince(lastPoll) > 60
+}
+
+export function MarketFreshness({ lastPoll, nextPoll }: { lastPoll: string | null; nextPoll?: string | null }) {
   if (!lastPoll) return <span className="v2-stale">Markets haven&apos;t been polled yet.</span>
   const minutes = minutesSince(lastPoll)
-  return <span className={minutes > 15 ? 'v2-stale' : undefined}>Market prices from {agoText(minutes)}.</span>
+  return <span className={marketStale(lastPoll, nextPoll) ? 'v2-stale' : undefined}>Market prices from {agoText(minutes)}.</span>
 }
 
 export function StatusLegend() {

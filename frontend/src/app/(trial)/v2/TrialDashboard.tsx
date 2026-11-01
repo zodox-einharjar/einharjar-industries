@@ -4,12 +4,19 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
-  DoctrineReport, DoctrineTile, MarketFreshness, StatusLegend, agoText, isk, minutesSince, sortDoctrines,
+  DoctrineReport, DoctrineTile, MarketFreshness, StatusLegend, agoText, isk, marketStale, minutesSince, sortDoctrines,
 } from './_shared/doctrines'
 
 // ── Types (subset of the classic dashboard's API responses) ──────────────────
 
 interface DailyPnl { date: string; profit: number; cumulative_profit: number }
+interface WalletSummary {
+  configured: boolean
+  total: number | null
+  change: number | null
+  wallets: { source: string; label: string; balance: number | null; error: string | null }[]
+  series: { t: string; total: number }[]
+}
 interface PnlSummary { total_profit: number; roi_pct: number }
 interface Listing {
   order_id: number
@@ -90,6 +97,39 @@ function shortDate(iso: string): string {
   return `${parseInt(d, 10)}/${parseInt(m, 10)}`
 }
 
+/** Total across the chosen wallets over time (hourly points). */
+function WalletChart({ series }: { series: WalletSummary['series'] }) {
+  const data = series.map(p => ({ ...p, ms: new Date(p.t).getTime() }))
+  return (
+    <div className="v2-profit-chart" role="img" aria-label="Wallet total over the last 30 days">
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
+          <CartesianGrid stroke="var(--seam)" strokeDasharray="2 4" vertical={false} />
+          <XAxis
+            dataKey="ms" type="number" scale="time" domain={['dataMin', 'dataMax']}
+            tickFormatter={ms => { const d = new Date(ms); return `${d.getDate()}/${d.getMonth() + 1}` }}
+            tick={{ fill: 'var(--dust)', fontSize: 12 }} axisLine={{ stroke: 'var(--seam)' }} tickLine={false} minTickGap={32}
+          />
+          <YAxis
+            tickFormatter={v => isk(v)} width={52} domain={['auto', 'auto']}
+            tick={{ fill: 'var(--dust)', fontSize: 12 }} axisLine={false} tickLine={false}
+          />
+          <Tooltip
+            cursor={{ stroke: 'var(--seam)' }}
+            content={({ active, payload }: any) => active && payload?.length ? (
+              <div className="v2-tip">
+                <div className="v2-tip-date">{new Date(payload[0].payload.ms).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                <div>Total: <b>{isk(payload[0].payload.total)}</b></div>
+              </div>
+            ) : null}
+          />
+          <Line type="stepAfter" dataKey="total" stroke="var(--brass)" strokeWidth={2} dot={false} isAnimationActive={false} />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
 /** Daily profit as bars (green/red), running total as a brass line. */
 function ProfitChart({ daily }: { daily: DailyPnl[] }) {
   return (
@@ -136,7 +176,7 @@ function DoctrineBoard({ report }: { report: DoctrineReport }) {
         <h2 id="board-title">Doctrine status</h2>
         <p>
           {report.doctrines_fully_stocked} of {report.doctrine_count} doctrines at target.{' '}
-          <MarketFreshness lastPoll={report.last_poll} />
+          <MarketFreshness lastPoll={report.last_poll} nextPoll={report.next_poll} />
         </p>
         <Link href="/v2/doctrines">See every fit</Link>
         <Link href="/v2/buying">Build a shopping list</Link>
@@ -161,6 +201,7 @@ export function TrialDashboard() {
   const [report, setReport] = useState<DoctrineReport | null>(null)
   const [failed, setFailed] = useState(false)
   const [pnl, setPnl] = useState<{ daily: DailyPnl[]; summary: PnlSummary } | null>(null)
+  const [wallet, setWallet] = useState<WalletSummary | null>(null)
   const [listings, setListings] = useState<Listing[]>([])
   const [contracts, setContracts] = useState<Contract[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
@@ -172,6 +213,7 @@ export function TrialDashboard() {
       .then(r => { setReport(r); setFailed(false) })
       .catch(() => setFailed(true))
     getJson('/api/inventory/pnl?days=30', null).then(setPnl)
+    getJson<WalletSummary | null>('/api/wallet/summary?days=30', null).then(setWallet)
     getJson<Listing[]>('/api/market-listings', []).then(setListings)
     getJson<Contract[]>('/api/contracts', []).then(setContracts)
     getJson<Job[]>('/api/industry/jobs', []).then(setJobs)
@@ -210,7 +252,7 @@ export function TrialDashboard() {
       where: `${d.planet_name ?? 'Unknown planet'}, comes out in ${until(d.reinforced_until!)}`,
       act: 'Open dens', href: '/mercenary',
     })),
-    ...(pollMinutes != null && pollMinutes > 15 ? [{
+    ...(report && pollMinutes != null && marketStale(report.last_poll, report.next_poll) ? [{
       key: 'poll', severity: 'warn' as const,
       what: 'Market data is out of date',
       where: `Last updated ${agoText(pollMinutes)}, stock figures may be wrong`,
@@ -249,7 +291,51 @@ export function TrialDashboard() {
 
   return (
     <div className="v2-dash">
-      <div className="v2-top">
+      <div className="v2-top three">
+        <section className="v2-panel" aria-labelledby="wallet-title">
+          <div className="v2-panel-head">
+            <h2 id="wallet-title">Wallet</h2>
+            <Link href="/v2/settings?tab=characters">Choose wallets</Link>
+          </div>
+          {!wallet ? (
+            <p className="v2-ledger-caption">Loading balances…</p>
+          ) : !wallet.configured ? (
+            <p className="v2-calm">
+              No wallets chosen yet. <Link href="/v2/settings?tab=characters" style={{ color: 'var(--brass)' }}>Pick characters and corp divisions</Link> to see your total here.
+            </p>
+          ) : (
+            <>
+              <div className="v2-ledger-summary">
+                <div className="v2-ledger-figure">{isk(wallet.total)}</div>
+                <p className="v2-ledger-caption">
+                  {wallet.change != null && (
+                    <span className={wallet.change >= 0 ? 'up' : 'down'}>{wallet.change >= 0 ? '+' : '−'}{isk(Math.abs(wallet.change))} over 30 days</span>
+                  )}
+                  {wallet.change != null && ', '}
+                  across {wallet.wallets.length} wallet{wallet.wallets.length === 1 ? '' : 's'}
+                </p>
+              </div>
+              {wallet.series.length > 1 && <WalletChart series={wallet.series} />}
+              {wallet.wallets.length > 1 && (
+                <ul className="v2-rows compact">
+                  {wallet.wallets.slice(0, 5).map(w => (
+                    <li key={w.source}>
+                      <span>{w.label}</span>
+                      <span className="side">
+                        <span className="val">{isk(w.balance)}</span>
+                        {w.error && <span className="orange" title={w.error}>Not updating</span>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {wallet.wallets.length === 1 && wallet.wallets[0].error && (
+                <p className="warn-text small">{wallet.wallets[0].label} isn&apos;t updating: {wallet.wallets[0].error}</p>
+              )}
+            </>
+          )}
+        </section>
+
         <section className="v2-panel v2-ledger" aria-labelledby="ledger-title">
           <div className="v2-panel-head">
             <h2 id="ledger-title">Ledger</h2>

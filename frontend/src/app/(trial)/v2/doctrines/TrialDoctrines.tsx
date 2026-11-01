@@ -349,7 +349,7 @@ export function TrialDoctrines() {
         {report && (
           <p>
             {report.doctrines_fully_stocked} of {report.doctrine_count} doctrines at target.{' '}
-            <MarketFreshness lastPoll={report.last_poll} />
+            <MarketFreshness lastPoll={report.last_poll} nextPoll={report.next_poll} />
           </p>
         )}
         <Link href="/availability">Edit doctrines and fits</Link>
