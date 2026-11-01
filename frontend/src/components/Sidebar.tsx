@@ -24,7 +24,7 @@ const NAV = [
       { label: 'Doctrines', href: '/availability' },
       { label: 'Fits', href: '/fits' },
       { label: 'Items', href: '/items' },
-      { label: 'Shopping', href: '/import-recommendations' },
+      { label: 'Shopping', href: '/shopping' },
     ],
   },
   {
