@@ -1318,7 +1318,7 @@ async def compute_doctrine_report(session, doctrine_id: int | None = None) -> di
 
         if not doctrine.location_id:
             doctrine_summary.append({
-                "id": doctrine.id, "name": doctrine.name,
+                "id": doctrine.id, "name": doctrine.name, "location_name": None,
                 "status": "unknown", "fits_stocked": 0, "fits_total": fits_total,
                 "fits": [
                     {"name": df.fit.name, "status": "unknown", "stock": None, "target": df.target_qty, "price": None}
@@ -1343,12 +1343,25 @@ async def compute_doctrine_report(session, doctrine_id: int | None = None) -> di
             price = None
             if all(r["staging_price"] is not None or r["jita_price"] is not None for r in calc["item_rows"]):
                 price = calc["staging_total"] if calc["staging_total"] is not None else calc["import_total"]
+            # The item that caps how many of this fit can be assembled from the market.
+            limiting = min(
+                (r for r in calc["item_rows"] if r["qty_per_fit"]),
+                key=lambda r: r["qty_available"] // r["qty_per_fit"],
+                default=None,
+            )
             fits_out.append({
                 "name": df.fit.name,
+                "ship_name": calc["ship_name"],
                 "status": _AVAIL_STATUS.get(calc["status"], "unknown"),
                 "stock": calc["completable"],
                 "target": df.target_qty,
                 "price": float(price) if price is not None else None,
+                "limiting_item": (
+                    limiting["name"] if limiting and calc["completable"] < df.target_qty else None
+                ),
+                "items_short": sum(
+                    1 for r in calc["item_rows"] if r["qty_available"] < r["qty_needed"]
+                ),
             })
             if calc["completable"] >= df.target_qty:
                 fits_stocked += 1
@@ -1390,6 +1403,7 @@ async def compute_doctrine_report(session, doctrine_id: int | None = None) -> di
 
         doctrine_summary.append({
             "id": doctrine.id, "name": doctrine.name,
+            "location_name": doctrine.location.name if doctrine.location else None,
             "status": doc_status, "fits_stocked": fits_stocked, "fits_total": fits_total,
             "fits": fits_out,
         })

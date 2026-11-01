@@ -1,0 +1,291 @@
+/* Trial frontend tokens — everything is scoped under .v2 so the classic app is unaffected. */
+
+.v2 {
+  --hull:   #1b2028;
+  --plate:  #232933;
+  --seam:   #323a46;
+  --bone:   #e8e2d4;
+  --dust:   #8d939d;
+  --dim:    #5d6470;
+  --brass:  #c9a35a;
+  --flare:  #e2636b;
+  --amber:  #d98e48;
+  --sage:   #8fbf9f;
+
+  min-height: 100vh;
+  background: var(--hull);
+  color: var(--bone);
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.v2 a { color: inherit; text-decoration: none; }
+.v2 :focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; border-radius: 2px; }
+
+.v2 h1, .v2 h2, .v2 h3 {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  margin: 0;
+}
+
+/* Status colors: a doctrine or fit is ready (at target), partial, or short (nothing at target). */
+.v2 .is-ready   { --status: var(--sage); }
+.v2 .is-partial { --status: var(--brass); }
+.v2 .is-short   { --status: var(--flare); }
+.v2 .is-unset   { --status: var(--dim); }
+
+/* ── Top bar ─────────────────────────────────────────────────────────── */
+
+.v2-bar {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 12px 32px;
+  border-bottom: 1px solid var(--seam);
+}
+.v2-wordmark {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: 0.02em;
+}
+.v2-bar-links { display: flex; gap: 22px; font-size: 14px; color: var(--dust); flex: 1; }
+.v2-bar-links a:hover { color: var(--bone); }
+.v2-classic { margin-left: auto; }
+.v2-pilot { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--dust); }
+.v2-pilot img { border-radius: 50%; }
+
+.v2-main { padding: 28px 32px 64px; }
+
+/* ── Dashboard layout: three bands separated by hairlines ───────────────
+   Bands: Ledger + Status, doctrine tiles, then four panels. Within a row the
+   1px grid gap shows the seam color behind the panels, so the vertical rules
+   stay correct at any column count. */
+
+.v2-dash > * { padding: 28px 0; }
+.v2-dash > :first-child { padding-top: 0; }
+/* The doctrine band carries both band rules, so they share its edges. */
+.v2-dash > :nth-child(2) { border-top: 1px solid var(--seam); border-bottom: 1px solid var(--seam); }
+
+.v2-top, .v2-side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  background: var(--seam);
+  background-clip: content-box;
+  margin-left: -28px;
+  margin-right: -28px;
+}
+.v2-top > *, .v2-side > * { background: var(--hull); padding: 4px 28px 8px; }
+@media (min-width: 900px) {
+  .v2-top  { grid-template-columns: minmax(0, 13fr) minmax(0, 7fr); }
+  .v2-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1600px) {
+  .v2-side { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* ── Doctrine status ─────────────────────────────────────────────────── */
+
+.v2-board-head { display: flex; align-items: baseline; gap: 24px; margin-bottom: 18px; flex-wrap: wrap; }
+.v2-board-head h2 { font-size: 30px; }
+.v2-board-head p { margin: 0; color: var(--dust); font-size: 14px; }
+.v2-board-head a { font-size: 14px; color: var(--brass); }
+.v2-board-head p + a { margin-left: auto; }
+.v2-board-head a:hover { text-decoration: underline; }
+
+.v2-board { columns: 440px; column-gap: 20px; }
+
+.v2-doc {
+  break-inside: avoid;
+  margin-bottom: 20px;
+  background: var(--plate);
+  border: 1px solid var(--seam);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.v2-doc-head { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 12px 16px 10px; }
+.v2-doc-fill {
+  position: absolute; inset: 0 auto 0 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--status) 22%, transparent));
+  border-bottom: 2px solid color-mix(in srgb, var(--status) 70%, transparent);
+  transform-origin: left;
+}
+.v2-doc-title { position: relative; min-width: 0; }
+.v2-doc-name {
+  display: block;
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+  line-height: 1.05;
+  color: var(--status);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.v2-doc-head:hover .v2-doc-name { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.v2-doc-loc { display: block; font-size: 13px; color: var(--dust); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v2-doc-count { position: relative; font-size: 14px; color: var(--dust); white-space: nowrap; padding-top: 4px; }
+.v2-doc-count strong { color: var(--bone); font-weight: 600; }
+
+.v2-fitlist { list-style: none; margin: 0; padding: 4px 0 6px; }
+.v2-fitrow {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  gap: 2px 12px;
+  align-items: baseline;
+  padding: 5px 16px;
+  font-size: 14px;
+}
+.v2-fitrow + .v2-fitrow { border-top: 1px solid rgba(50, 58, 70, 0.6); }
+.v2-fitrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--status); transform: translateY(-1px); }
+.v2-fitrow .fit { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v2-fitrow .ship { color: var(--dust); }
+.v2-fitrow .price { color: var(--dim); font-size: 13px; }
+.v2-fitrow .qty { text-align: right; min-width: 64px; }
+.v2-fitrow .qty b { font-weight: 600; color: var(--status); }
+.v2-fitrow .qty span { color: var(--dust); }
+.v2-fitrow .limit { grid-column: 2 / -1; font-size: 13px; color: var(--dust); }
+.v2-fitrow .limit em { font-style: normal; color: var(--bone); }
+
+.v2-legend { display: flex; gap: 20px; font-size: 13px; color: var(--dust); flex-wrap: wrap; margin-bottom: 14px; }
+.v2-legend span::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--status); vertical-align: 1px; }
+
+/* Dashboard tiles: compact doctrine header + one segment per fit. */
+.v2-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.v2-tile { margin-bottom: 0; position: relative; overflow: visible; }
+.v2-tile .v2-doc-head { overflow: hidden; border-radius: 5px 5px 0 0; }
+
+/* Hover/focus drop-down: hangs off the tile's bottom edge so the tile reads as
+   expanding, but floats over the tiles below instead of pushing them. */
+.v2-tile-pop {
+  position: absolute; z-index: 20;
+  top: 100%; left: -1px; right: -1px;
+  background: var(--plate);
+  border: 1px solid var(--seam); border-top: 0;
+  border-radius: 0 0 6px 6px;
+  box-shadow: 0 18px 40px rgba(8, 10, 14, 0.55);
+  visibility: hidden; opacity: 0;
+  max-height: 60vh; overflow-y: auto;
+}
+.v2-tile:hover, .v2-tile:focus-within { z-index: 20; border-radius: 6px 6px 0 0; border-bottom-color: transparent; }
+.v2-tile:hover .v2-tile-pop, .v2-tile:focus-within .v2-tile-pop { visibility: visible; opacity: 1; }
+.v2-tile:hover .v2-segs, .v2-tile:focus-within .v2-segs { border-bottom: 1px solid var(--seam); }
+@media (prefers-reduced-motion: no-preference) {
+  .v2-tile-pop { transition: opacity 120ms ease, visibility 0s linear 120ms; }
+  .v2-tile:hover .v2-tile-pop { transition: opacity 140ms ease 180ms, visibility 0s linear 180ms; }
+}
+@media (hover: none) and (pointer: coarse) { .v2-tile-pop { display: none; } }
+.v2-tile .v2-doc-name { font-size: 24px; }
+.v2-segs { display: flex; gap: 3px; padding: 8px 16px 12px; }
+.v2-seg { flex: 1; height: 5px; border-radius: 1px; background: var(--status); min-width: 4px; }
+.v2-seg.is-ready { opacity: 0.75; }
+
+/* Doctrines page controls */
+.v2-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.v2-search {
+  background: var(--plate); border: 1px solid var(--seam); border-radius: 4px; color: var(--bone);
+  font: inherit; font-size: 14px; padding: 7px 12px; width: 300px;
+}
+.v2-search::placeholder { color: var(--dim); }
+.v2-search:focus { outline: none; border-color: var(--brass); }
+.v2-chip {
+  background: none; border: 1px solid var(--seam); border-radius: 4px; color: var(--dust);
+  font: inherit; font-size: 14px; padding: 6px 12px; cursor: pointer;
+}
+.v2-chip:hover { color: var(--bone); }
+.v2-chip[aria-pressed="true"] { border-color: var(--brass); color: var(--brass); }
+.v2-chip small { color: var(--dim); margin-left: 4px; font-size: 13px; }
+.v2-doc:target { border-color: var(--brass); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .v2-doc-fill { animation: v2-fill 900ms cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--i) * 35ms); }
+  @keyframes v2-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+}
+
+/* ── Side panels ─────────────────────────────────────────────────────── */
+
+.v2-panel h2 { font-size: 24px; margin-bottom: 14px; }
+.v2-panel-head { display: flex; align-items: baseline; justify-content: space-between; }
+.v2-panel-head a { font-size: 13px; color: var(--dust); }
+.v2-panel-head a:hover { color: var(--brass); }
+
+.v2-todo { list-style: none; margin: 0; padding: 0; }
+.v2-todo li { border-top: 1px solid var(--seam); }
+.v2-todo li:last-child { border-bottom: 1px solid var(--seam); }
+.v2-todo a { display: grid; grid-template-columns: 10px 1fr auto; gap: 12px; align-items: baseline; padding: 10px 2px; }
+.v2-todo a:hover { background: rgba(255, 255, 255, 0.025); }
+.v2-todo .dot { width: 8px; height: 8px; border-radius: 50%; transform: translateY(-1px); }
+.v2-todo .danger .dot { background: var(--flare); }
+.v2-todo .warn .dot { background: var(--amber); }
+.v2-todo .what { font-size: 14px; }
+.v2-todo .where { display: block; font-size: 13px; color: var(--dust); }
+.v2-todo .act { font-size: 13px; color: var(--brass); white-space: nowrap; }
+.v2-calm { padding: 14px 0; color: var(--dust); border-top: 1px solid var(--seam); border-bottom: 1px solid var(--seam); margin: 0; }
+
+.v2-ledger-summary { display: flex; align-items: baseline; gap: 6px 20px; flex-wrap: wrap; margin-bottom: 8px; }
+.v2-ledger-summary .v2-ledger-caption { margin: 0; }
+.v2-profit-chart { height: 220px; margin-top: 4px; }
+.v2-tip { background: var(--plate); border: 1px solid var(--seam); border-radius: 4px; padding: 6px 10px; font-size: 13px; color: var(--dust); }
+.v2-tip-date { color: var(--bone); margin-bottom: 2px; }
+.v2-tip b { color: var(--bone); font-weight: 600; }
+.v2-tip b.up { color: var(--sage); }
+.v2-tip b.down { color: var(--flare); }
+.v2-ledger-figure { font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 56px; line-height: 0.95; }
+.v2-ledger-figure.up { color: var(--sage); }
+.v2-ledger-figure.down { color: var(--flare); }
+.v2-ledger-caption { color: var(--dust); font-size: 14px; margin: 6px 0 14px; }
+
+.v2-jobs { list-style: none; margin: 0; padding: 0; }
+.v2-jobs li { display: grid; grid-template-columns: minmax(0, 1fr) 80px; gap: 5px 16px; padding: 9px 0; border-top: 1px solid var(--seam); align-items: center; }
+.v2-jobs .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+.v2-jobs .eta { text-align: right; color: var(--dust); font-size: 14px; }
+.v2-jobs .eta.done { color: var(--sage); }
+.v2-jobs .track { grid-column: 1 / -1; height: 3px; background: var(--seam); border-radius: 2px; overflow: hidden; }
+.v2-jobs .track i { display: block; height: 100%; background: var(--dust); }
+
+.v2-panel-sum { margin: -6px 0 12px; color: var(--dust); font-size: 14px; }
+.v2-panel-sum .bad { color: var(--flare); }
+.v2-panel-sum .warn { color: var(--amber); }
+
+/* Generic two-sided row list: label + sub line on the left, value + state on the right. */
+.v2-rows { list-style: none; margin: 0; padding: 0; }
+.v2-rows li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--seam); font-size: 14px; }
+.v2-rows li > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v2-rows .sub { color: var(--dust); font-size: 13px; display: block; overflow: hidden; text-overflow: ellipsis; }
+.v2-rows .side { font-size: 13px; color: var(--dust); text-align: right; white-space: nowrap; display: flex; flex-direction: column; }
+.v2-rows .side .val { color: var(--bone); font-size: 14px; font-weight: 600; }
+.v2-rows .red, .v2-rows .side.red { color: var(--flare); }
+.v2-rows .orange, .v2-rows .side.orange { color: var(--amber); }
+.v2-rows .side.yellow { color: var(--brass); }
+.v2-rows .side.op { color: var(--sage); }
+
+.v2-empty { color: var(--dim); padding: 12px 0; border-top: 1px solid var(--seam); margin: 0; }
+.v2-stale { color: var(--amber); }
+.v2-fresh { color: var(--dust); font-size: 13px; white-space: nowrap; }
+
+.v2-skeleton { height: 480px; background: var(--plate); border: 1px solid var(--seam); border-radius: 6px; }
+
+/* ── Small screens ───────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .v2-bar { padding: 12px 16px; gap: 16px; flex-wrap: wrap; }
+  .v2-bar-links { order: 3; flex-basis: 100%; overflow-x: auto; }
+  .v2-main { padding: 20px 16px 48px; }
+  .v2-top, .v2-side { margin-left: 0; margin-right: 0; }
+  .v2-top > *, .v2-side > * { padding: 16px 0; }
+  .v2-board { columns: 1; }
+  .v2-doc-name { font-size: 24px; }
+  .v2-ledger-summary { display: flex; align-items: baseline; gap: 6px 20px; flex-wrap: wrap; margin-bottom: 8px; }
+.v2-ledger-summary .v2-ledger-caption { margin: 0; }
+.v2-profit-chart { height: 220px; margin-top: 4px; }
+.v2-tip { background: var(--plate); border: 1px solid var(--seam); border-radius: 4px; padding: 6px 10px; font-size: 13px; color: var(--dust); }
+.v2-tip-date { color: var(--bone); margin-bottom: 2px; }
+.v2-tip b { color: var(--bone); font-weight: 600; }
+.v2-tip b.up { color: var(--sage); }
+.v2-tip b.down { color: var(--flare); }
+.v2-ledger-figure { font-size: 48px; }
+}
