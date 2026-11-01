@@ -340,7 +340,7 @@ export function TrialDoctrines() {
     () => doctrines.filter(d => d.fits.some(f => f.df_id != null && selected.has(f.df_id))).length,
     [doctrines, selected],
   )
-  const shopHref = selected.size > 0 ? `/shopping?fits=${[...selected].sort((a, b) => a - b).join(',')}` : '/shopping'
+  const shopHref = selected.size > 0 ? `/v2/buying?fits=${[...selected].sort((a, b) => a - b).join(',')}` : '/v2/buying'
 
   return (
     <section aria-labelledby="doctrines-title" className={selected.size > 0 ? 'v2-selecting' : undefined}>

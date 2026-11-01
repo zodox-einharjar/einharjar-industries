@@ -24,7 +24,7 @@ export default async function TrialLayout({ children }: { children: React.ReactN
         <Link href="/v2" className="v2-wordmark">Einharjar Industries</Link>
         <nav className="v2-bar-links">
           <Link href="/v2/doctrines">Doctrines</Link>
-          <Link href="/shopping">Shopping</Link>
+          <Link href="/v2/buying">Buying</Link>
           <Link href="/industry">Industry</Link>
           <Link href="/market-orders">Market</Link>
           <Link href="/" className="v2-classic">Classic view</Link>

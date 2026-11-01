@@ -65,6 +65,14 @@ const CONTRACT_TYPE: Record<string, string> = {
   item_exchange: 'Item exchange', courier: 'Courier', auction: 'Auction', loan: 'Loan',
 }
 
+/** "Maller ×3, Nitrogen Fuel Block" — repeated names collapse into a count. */
+function groupNames(names: string[], max = 3): string {
+  const counts = new Map<string, number>()
+  names.forEach(n => counts.set(n, (counts.get(n) ?? 0) + 1))
+  const parts = [...counts].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n))
+  return parts.length > max ? `${parts.slice(0, max).join(', ')} and ${parts.length - max} more` : parts.join(', ')
+}
+
 function anarchyTier(level: string, amount: number): 'green' | 'yellow' | 'orange' | 'red' {
   const idx = parseInt(level.replace('Level', ''), 10) || 0
   if (idx <= 0) return amount >= 15 ? 'yellow' : 'green'
@@ -131,7 +139,7 @@ function DoctrineBoard({ report }: { report: DoctrineReport }) {
           <MarketFreshness lastPoll={report.last_poll} />
         </p>
         <Link href="/v2/doctrines">See every fit</Link>
-        <Link href="/shopping">Build a shopping list</Link>
+        <Link href="/v2/buying">Build a shopping list</Link>
       </div>
       <StatusLegend />
       {doctrines.length === 0 ? (
@@ -223,7 +231,7 @@ export function TrialDashboard() {
     ...(deliverable.length > 0 ? [{
       key: 'jobs-ready', severity: 'warn' as const,
       what: `${deliverable.length} industry job${deliverable.length === 1 ? ' is' : 's are'} ready to deliver`,
-      where: deliverable.slice(0, 3).map(j => j.product_name ?? j.blueprint_name ?? 'Job').join(', '),
+      where: groupNames(deliverable.map(j => j.product_name ?? j.blueprint_name ?? 'Job')),
       act: 'View jobs', href: '/industry/jobs',
     }] : []),
     ...dens.filter(d => !d.reinforced_until && anarchyTier(d.anarchy_level, d.anarchy_amount) === 'red').map(d => ({
@@ -247,7 +255,7 @@ export function TrialDashboard() {
             <h2 id="ledger-title">Ledger</h2>
             <Link href="/pnl">Full history</Link>
           </div>
-          {pnl ? (
+          {pnl && pnl.daily.length > 0 ? (
             <>
               <div className="v2-ledger-summary">
                 <div className={`v2-ledger-figure ${pnl.summary.total_profit >= 0 ? 'up' : 'down'}`}>
@@ -260,7 +268,7 @@ export function TrialDashboard() {
               {pnl.daily.length > 1 && <ProfitChart daily={pnl.daily} />}
             </>
           ) : (
-            <p className="v2-ledger-caption">No sales recorded in the last 30 days.</p>
+            <p className="v2-calm">No sales recorded in the last 30 days.</p>
           )}
         </section>
 
