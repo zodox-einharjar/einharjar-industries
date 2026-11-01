@@ -1321,7 +1321,7 @@ async def compute_doctrine_report(session, doctrine_id: int | None = None) -> di
                 "id": doctrine.id, "name": doctrine.name, "location_name": None,
                 "status": "unknown", "fits_stocked": 0, "fits_total": fits_total,
                 "fits": [
-                    {"name": df.fit.name, "status": "unknown", "stock": None, "target": df.target_qty, "price": None}
+                    {"df_id": df.id, "fit_id": df.fit.id, "name": df.fit.name, "status": "unknown", "stock": None, "target": df.target_qty, "price": None}
                     for df in doctrine.doctrine_fits
                 ],
             })
@@ -1350,6 +1350,8 @@ async def compute_doctrine_report(session, doctrine_id: int | None = None) -> di
                 default=None,
             )
             fits_out.append({
+                "df_id": df.id,
+                "fit_id": df.fit.id,
                 "name": df.fit.name,
                 "ship_name": calc["ship_name"],
                 "status": _AVAIL_STATUS.get(calc["status"], "unknown"),

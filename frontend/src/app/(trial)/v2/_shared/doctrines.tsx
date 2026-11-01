@@ -1,9 +1,12 @@
 import Link from 'next/link'
+import { useEffect, useRef } from 'react'
 
 // Shared by the trial dashboard (compact tiles) and the trial doctrines page (full cards).
 // Data comes from the existing /api/dashboard doctrine report.
 
 export interface FitSummary {
+  df_id?: number
+  fit_id?: number
   name: string
   ship_name?: string
   status: string
@@ -101,13 +104,53 @@ export function StatusLegend() {
   )
 }
 
+// ── Selection (doctrine-fit ids, as used by Shopping's scope) ─────────────────
+
+export interface Selection {
+  selected: Set<number>
+  /** Turn a group of doctrine-fit ids on or off together. */
+  set: (dfIds: number[], on: boolean) => void
+}
+
+/** Custom checkbox. With `dot`, the stock-status dot shows in its place until the
+ *  row is hovered/focused, the box is ticked, or anything on the page is selected. */
+export function TriCheckbox({ ids, selection, label, dot }: {
+  ids: number[]; selection: Selection; label: string; dot?: boolean
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  const on = ids.filter(id => selection.selected.has(id)).length
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = on > 0 && on < ids.length
+  }, [on, ids.length])
+  return (
+    <span className={`v2-pick${on > 0 ? ' on' : ''}${dot ? ' with-dot' : ''}`}>
+      {dot && <span className="dot" aria-hidden />}
+      <input
+        ref={ref}
+        type="checkbox"
+        className="v2-check"
+        checked={ids.length > 0 && on === ids.length}
+        disabled={ids.length === 0}
+        onChange={() => selection.set(ids, on < ids.length)}
+        onClick={e => e.stopPropagation()}
+        aria-label={label}
+      />
+    </span>
+  )
+}
+
 // ── Doctrine header (shared by tile and card) ─────────────────────────────────
 
-function DoctrineHead({ d, index, href, compact }: { d: DoctrineSummary; index: number; href: string; compact?: boolean }) {
+function DoctrineHead({ d, index, href, compact, selection, shownFits }: {
+  d: DoctrineSummary; index: number; href?: string; compact?: boolean; selection?: Selection; shownFits?: FitSummary[]
+}) {
   const unset = d.status === 'unknown'
-  return (
-    <Link href={href} className="v2-doc-head">
+  // The doctrine checkbox covers the fits currently shown (a filter may hide some).
+  const dfIds = (shownFits ?? d.fits).flatMap(f => (f.df_id != null ? [f.df_id] : []))
+  const body = (
+    <>
       {!unset && <div className="v2-doc-fill" style={{ width: `${readiness(d) * 100}%`, ['--i' as string]: index }} />}
+      {selection && !unset && <TriCheckbox ids={dfIds} selection={selection} label={`Select all fits in ${d.name}`} />}
       <span className="v2-doc-title">
         <span className="v2-doc-name">{d.name}</span>
         <span className="v2-doc-loc">{d.location_name ?? 'No staging location set'}</span>
@@ -119,8 +162,11 @@ function DoctrineHead({ d, index, href, compact }: { d: DoctrineSummary; index: 
             : <><strong>{d.fits_stocked}</strong> of {d.fits_total} at target</>}
         </span>
       )}
-    </Link>
+    </>
   )
+  return href
+    ? <Link href={href} className="v2-doc-head">{body}</Link>
+    : <div className="v2-doc-head">{body}</div>
 }
 
 function sortFits(fits: FitSummary[]): FitSummary[] {
@@ -128,17 +174,22 @@ function sortFits(fits: FitSummary[]): FitSummary[] {
 }
 
 /** Every fit with stock, cost and what limits it — fits needing stock first. */
-function FitList({ fits }: { fits: FitSummary[] }) {
+function FitList({ fits, selection }: { fits: FitSummary[]; selection?: Selection }) {
   return (
-    <ul className="v2-fitlist">
+    <ul className={`v2-fitlist${selection ? ' selectable' : ''}`}>
       {sortFits(fits).map((f, j) => {
         const stock = f.stock ?? 0
         const showShip = f.ship_name && !f.name.toLowerCase().includes(f.ship_name.toLowerCase())
         return (
           <li key={j} className={`v2-fitrow ${fitTone(f)}`}>
-            <span className="dot" aria-hidden />
+            {selection && f.df_id != null
+              ? <TriCheckbox ids={[f.df_id]} selection={selection} label={`Select ${f.name}`} dot />
+              : <span className="dot" aria-hidden />}
             <span className="fit" title={f.name}>
-              {f.name}{showShip && <span className="ship"> ({f.ship_name})</span>}
+              {f.fit_id != null
+                ? <Link href={`/doctrines/fits/${f.fit_id}`}>{f.name}</Link>
+                : f.name}
+              {showShip && <span className="ship"> ({f.ship_name})</span>}
             </span>
             <span className="price" title="Cost of one fit at the staging market (or imported)">{f.price != null ? isk(f.price) : ''}</span>
             <span className="qty"><b>{stock}</b><span> / {f.target}</span></span>
@@ -177,11 +228,13 @@ export function DoctrineTile({ d, index }: { d: DoctrineSummary; index: number }
 }
 
 /** Doctrines page card: header plus every fit with stock, cost and what limits it. */
-export function DoctrineCard({ d, index, fits }: { d: DoctrineSummary; index: number; fits?: FitSummary[] }) {
+export function DoctrineCard({ d, index, fits, selection }: {
+  d: DoctrineSummary; index: number; fits?: FitSummary[]; selection?: Selection
+}) {
   return (
     <article id={`doctrine-${d.id}`} className={`v2-doc ${DOCTRINE_TONE[d.status]}`}>
-      <DoctrineHead d={d} index={index} href={`/doctrines/${d.id}`} />
-      {d.status !== 'unknown' && <FitList fits={fits ?? d.fits} />}
+      <DoctrineHead d={d} index={index} selection={selection} shownFits={fits} />
+      {d.status !== 'unknown' && <FitList fits={fits ?? d.fits} selection={selection} />}
     </article>
   )
 }

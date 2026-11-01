@@ -116,7 +116,7 @@
   border-bottom: 2px solid color-mix(in srgb, var(--status) 70%, transparent);
   transform-origin: left;
 }
-.v2-doc-title { position: relative; min-width: 0; }
+.v2-doc-title { position: relative; min-width: 0; flex: 1; }
 .v2-doc-name {
   display: block;
   font-family: var(--font-display), sans-serif;
@@ -150,6 +150,58 @@
 .v2-fitrow .qty span { color: var(--dust); }
 .v2-fitrow .limit { grid-column: 2 / -1; font-size: 13px; color: var(--dust); }
 .v2-fitrow .limit em { font-style: normal; color: var(--bone); }
+.v2-fitrow .fit a:hover { text-decoration: underline; }
+
+/* Selection checkboxes (doctrines page → Shopping scope). Custom-drawn so they match
+   the UI instead of the desktop theme. */
+.v2-check {
+  appearance: none; -webkit-appearance: none;
+  width: 15px; height: 15px; margin: 0;
+  border: 1.5px solid var(--dim); border-radius: 3px; background: transparent;
+  display: inline-grid; place-content: center; cursor: pointer; flex-shrink: 0;
+  transition: border-color 100ms, background-color 100ms;
+}
+.v2-check:hover { border-color: var(--bone); }
+.v2-check:checked, .v2-check:indeterminate { background: var(--brass); border-color: var(--brass); }
+.v2-check:checked::after {
+  content: ''; width: 8px; height: 4px; margin-top: -2px;
+  border: 2px solid var(--hull); border-top: 0; border-right: 0; transform: rotate(-45deg);
+}
+.v2-check:indeterminate::after { content: ''; width: 7px; height: 2px; background: var(--hull); border-radius: 1px; }
+.v2-check:disabled { opacity: 0.3; cursor: default; }
+
+/* Dot ↔ checkbox swap: both sit in the same 15px cell. */
+.v2-pick { position: relative; display: inline-grid; place-items: center; width: 15px; height: 15px; vertical-align: -2px; }
+.v2-pick > * { grid-area: 1 / 1; }
+.v2-pick.with-dot .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--status); transform: none; margin: 0; }
+.v2-pick.with-dot .v2-check { opacity: 0; }
+.v2-fitrow:hover .v2-pick.with-dot .v2-check, .v2-table tr:hover .v2-pick.with-dot .v2-check,
+.v2-pick.with-dot:focus-within .v2-check, .v2-pick.with-dot.on .v2-check, .v2-selecting .v2-pick.with-dot .v2-check { opacity: 1; }
+.v2-fitrow:hover .v2-pick.with-dot .dot, .v2-table tr:hover .v2-pick.with-dot .dot,
+.v2-pick.with-dot:focus-within .dot, .v2-pick.with-dot.on .dot, .v2-selecting .v2-pick.with-dot .dot { opacity: 0; }
+
+/* Doctrine-level box: shown on card hover, focus, or while selecting. */
+.v2-doc-head .v2-pick { position: relative; align-self: center; margin-right: -4px; opacity: 0; transition: opacity 100ms; }
+.v2-doc:hover .v2-doc-head .v2-pick, .v2-doc-head .v2-pick:focus-within, .v2-doc-head .v2-pick.on, .v2-selecting .v2-doc-head .v2-pick { opacity: 1; }
+
+.v2-fitlist.selectable .v2-fitrow { grid-template-columns: 15px minmax(0, 1fr) auto auto; }
+.v2-table .sel .v2-pick { margin-right: 2px; }
+
+.v2-selbar {
+  position: sticky; bottom: 16px; z-index: 30;
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  margin-top: 20px; padding: 12px 18px;
+  background: var(--plate); border: 1px solid var(--brass); border-radius: 6px;
+  box-shadow: 0 12px 32px rgba(8, 10, 14, 0.6);
+  font-size: 14px;
+}
+.v2-selbar strong { font-weight: 600; }
+.v2-selbar .muted { color: var(--dust); }
+.v2-selbar .go {
+  margin-left: auto; background: var(--brass); color: var(--hull); font-weight: 600;
+  padding: 7px 14px; border-radius: 4px;
+}
+.v2-selbar .go:hover { filter: brightness(1.08); }
 
 .v2-legend { display: flex; gap: 20px; font-size: 13px; color: var(--dust); flex-wrap: wrap; margin-bottom: 14px; }
 .v2-legend span::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--status); vertical-align: 1px; }
@@ -200,6 +252,34 @@
 .v2-chip[aria-pressed="true"] { border-color: var(--brass); color: var(--brass); }
 .v2-chip small { color: var(--dim); margin-left: 4px; font-size: 13px; }
 .v2-doc:target { border-color: var(--brass); }
+
+/* View switcher: a segmented control, distinct from the filter chips beside it. */
+.v2-tabs { display: inline-flex; border: 1px solid var(--seam); border-radius: 4px; overflow: hidden; }
+.v2-tabs button {
+  background: none; border: 0; color: var(--dust); font: inherit; font-size: 14px;
+  padding: 6px 14px; cursor: pointer;
+}
+.v2-tabs button + button { border-left: 1px solid var(--seam); }
+.v2-tabs button:hover { color: var(--bone); }
+.v2-tabs button[aria-selected="true"] { background: var(--plate); color: var(--bone); box-shadow: inset 0 -2px 0 var(--brass); }
+
+/* Data tables (fit and item views) */
+.v2-table-wrap { overflow-x: auto; border: 1px solid var(--seam); border-radius: 6px; }
+.v2-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.v2-table th {
+  text-align: left; font-weight: 500; color: var(--dust); font-size: 13px;
+  padding: 10px 14px; background: var(--plate); border-bottom: 1px solid var(--seam); white-space: nowrap;
+}
+.v2-table th button { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.v2-table th button:hover, .v2-table th button.on { color: var(--bone); }
+.v2-table td { padding: 8px 14px; border-top: 1px solid rgba(50, 58, 70, 0.6); vertical-align: baseline; }
+.v2-table tbody tr:first-child td { border-top: 0; }
+.v2-table tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
+.v2-table .num { text-align: right; white-space: nowrap; }
+.v2-table .muted { color: var(--dust); }
+.v2-table .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--status); margin-right: 10px; vertical-align: 1px; }
+.v2-table .name:hover { text-decoration: underline; }
+.v2-table b { font-weight: 600; color: var(--status); }
 
 @media (prefers-reduced-motion: no-preference) {
   .v2-doc-fill { animation: v2-fill 900ms cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--i) * 35ms); }
@@ -288,4 +368,9 @@
 .v2-tip b.up { color: var(--sage); }
 .v2-tip b.down { color: var(--flare); }
 .v2-ledger-figure { font-size: 48px; }
+}
+.v2-table .sel { width: 1%; padding-right: 0; }
+@media (hover: none) and (pointer: coarse) {
+  .v2-pick.with-dot .v2-check, .v2-doc-head .v2-pick { opacity: 1; }
+  .v2-pick.with-dot .dot { opacity: 0; }
 }

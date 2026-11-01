@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -544,6 +545,22 @@ export function ShoppingClient() {
     setHydrated(true)
   }, [])
 
+  // ?fits=1,2,3 (from "Buy what's missing" on the Doctrines page) replaces the saved
+  // scope with exactly those doctrine-fits, then the parameter is dropped from the URL.
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const urlFits = searchParams.get('fits')
+
+  useEffect(() => {
+    if (!options || !hydrated || urlFits == null) return
+    const wanted = new Set(urlFits.split(',').map(Number).filter(Number.isFinite))
+    const all = options.staging.flatMap(l => l.doctrines.flatMap(d => d.fits.map(f => f.doctrine_fit_id)))
+    setScopeOff(new Set(all.filter(id => !wanted.has(id))))
+    setScopeOpen(true)
+    router.replace('/shopping', { scroll: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options, hydrated, urlFits])
+
   useEffect(() => {
     fetch('/api/shopping/options')
       .then(r => { if (!r.ok) throw new Error(); return r.json() })
@@ -560,7 +577,7 @@ export function ShoppingClient() {
   const scopeKey = selectedFitIds?.join(',')
 
   const load = useCallback(() => {
-    if (!selectedFitIds || !hydrated) return
+    if (!selectedFitIds || !hydrated || urlFits != null) return
     setLoading(true)
     setError(null)
     fetch('/api/shopping/plan', {
@@ -582,7 +599,7 @@ export function ShoppingClient() {
       .catch(() => setError('Failed to build shopping plan.'))
       .finally(() => setLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, scopeKey, prefs.mode, prefs.fillPct, prefs.netInventory, prefs.windowDays, appliedBuyback])
+  }, [hydrated, urlFits, scopeKey, prefs.mode, prefs.fillPct, prefs.netInventory, prefs.windowDays, appliedBuyback])
 
   useEffect(() => {
     const t = setTimeout(load, 300)
