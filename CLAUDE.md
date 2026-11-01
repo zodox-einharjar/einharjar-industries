@@ -8,20 +8,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 eve-app/
 ├── backend/       FastAPI app (Python)
 ├── frontend/      Next.js 14 app (TypeScript / Tailwind)
-├── docker-compose.yml
+├── docker-compose.yml        Local dev stack (uses .env.dev)
+├── docker-compose.prod.yml   Production stack — runs on TrueNAS via Dockge, images from GHCR
 ├── nginx.conf
-└── .env           Root env file — used by docker-compose and local backend dev
+├── scripts/refresh_dev_db.sh Copies the live DB into the dev DB
+├── .env           Live config (live DATABASE_URL) — only read by refresh_dev_db.sh locally
+└── .env.dev       Local dev config (dev DB, separate EVE app, no Discord) — gitignored
 ```
+
+**Production is not this machine.** The live site runs on TrueNAS (Dockge, `docker-compose.prod.yml`).
+Pushing to `main` builds `ghcr.io/zodox-einharjar/einharjar-industries-{backend,frontend}:latest` via
+GitHub Actions; the stack is then redeployed in Dockge. Test changes locally first.
 
 ## Dev Commands
 
-### Docker (recommended)
+### Local dev stack (Docker, recommended)
 
 ```bash
-# First run: register http://localhost/auth/callback in your EVE developer app
-docker compose up --build
-# App is at http://localhost — nginx routes /auth/* + /api/* to backend, rest to Next.js
+cp .env.dev.example .env.dev          # first time: fill in DB credentials + dev EVE app
+scripts/refresh_dev_db.sh             # copy live DB → einharjar-industries_dev (tokens blanked)
+docker compose up --build             # http://localhost — log in again with the dev EVE app
 ```
+
+- `.env.dev` must never point at the live DB; the refresh script refuses unless the dev DB name ends in `_dev`.
+- Use a **separate EVE developer app** with callback `http://localhost/auth/callback` so local token
+  refreshes never invalidate production's tokens.
+- The Discord bot is behind the `discord` compose profile and Discord vars are unset, so no notifications
+  are sent from local dev.
+- `backend/.env` is a symlink to `../.env.dev`, so local Python scripts hit the dev DB too.
 
 ### SDE update (run once, then whenever CCP patches)
 
@@ -34,7 +48,7 @@ cd backend && python -m scripts.update_sde
 ### Backend (local, no Docker)
 
 ```bash
-# .env must exist in backend/ — symlink it: ln -s ../.env backend/.env
+# .env must exist in backend/ — symlink it to the dev config: ln -s ../.env.dev backend/.env
 cd backend && .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # Manually invoke DB table creation (tables are auto-created on startup)

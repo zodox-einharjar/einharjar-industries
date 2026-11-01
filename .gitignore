@@ -20,3 +20,6 @@ frontend/out/
 
 # Docker
 docker-compose.override.yml
+.env.dev
+**/data/*.sqlite-shm
+**/data/*.sqlite-wal

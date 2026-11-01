@@ -3,22 +3,25 @@ services:
     build:
       context: ./backend
     restart: unless-stopped
-    # Root .env supplies all config including DATABASE_URL pointing at the TrueNAS postgres.
-    # NOTE: EVE_CALLBACK_URL must match the hostname you use to access the app
-    #       AND be registered in your EVE developer app at developers.eveonline.com.
-    env_file: .env
-    environment:
-      EVE_CALLBACK_URL: http://localhost/auth/callback
+    # Local dev only: .env.dev points at the dev copy of the database (never the live one)
+    # and a separate EVE developer app. Production runs from docker-compose.prod.yml on TrueNAS.
+    env_file: .env.dev
+    # Source is mounted and uvicorn reloads on save, like the frontend dev server.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app
     volumes:
       # SDE SQLite is not baked into the image — mount the file from the host.
       - ./backend/data:/app/data
+      - ./backend/app:/app/app
 
   discord-bot:
     build:
       context: ./backend
     restart: unless-stopped
     command: python -m app.discord.main
-    env_file: .env
+    env_file: .env.dev
+    # Not started locally — production's bot already uses the token. Opt in with
+    # `docker compose --profile discord up` and a separate test bot token in .env.dev.
+    profiles: ["discord"]
     # Inherits the backend image's HEALTHCHECK (curls :8000/health), but this
     # container runs the bot, not uvicorn — nothing listens on :8000 here.
     healthcheck:
