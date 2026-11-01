@@ -44,9 +44,12 @@ async def get_valid_token(char: Character, session: AsyncSession) -> str:
 
 
 async def get_char_with_scope(session: AsyncSession, scope: str) -> Character | None:
-    """Return the first character that holds a given ESI scope."""
-    result = await session.execute(select(Character))
+    """Return the first character that holds a given ESI scope and has a token to use.
+
+    Characters without a refresh token (e.g. in a dev copy of the database, where
+    tokens are blanked) would only fail on refresh, so they're skipped."""
+    result = await session.execute(select(Character).order_by(Character.id))
     for char in result.scalars():
-        if scope in (char.scopes or []):
+        if scope in (char.scopes or []) and char.refresh_token:
             return char
     return None
