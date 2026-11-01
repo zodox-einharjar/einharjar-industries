@@ -619,3 +619,22 @@
 .v2-port .bg-green-500, .v2-port .bg-green-600, .v2-port .hover\:bg-green-500:hover { background-color: var(--sage); color: var(--hull); }
 .v2-port .text-green-400 { color: var(--sage); }
 .v2-port .bg-red-500 { background-color: var(--flare); }
+
+/* Native checkboxes in ported pages get the same brass box as the rest of the trial. */
+.v2-port input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none;
+  width: 15px; height: 15px; margin: 0; vertical-align: -2px;
+  border: 1.5px solid var(--dim); border-radius: 3px; background: transparent;
+  display: inline-grid; place-content: center; cursor: pointer; flex-shrink: 0;
+  transition: border-color 100ms, background-color 100ms;
+}
+.v2-port input[type="checkbox"]:hover { border-color: var(--bone); }
+.v2-port input[type="checkbox"]:checked,
+.v2-port input[type="checkbox"]:indeterminate { background: var(--brass); border-color: var(--brass); }
+.v2-port input[type="checkbox"]:checked::after {
+  content: ''; width: 8px; height: 4px; margin-top: -2px;
+  border: 2px solid var(--hull); border-top: 0; border-right: 0; transform: rotate(-45deg);
+}
+.v2-port input[type="checkbox"]:indeterminate::after { content: ''; width: 7px; height: 2px; background: var(--hull); border-radius: 1px; }
+.v2-port input[type="checkbox"]:disabled { opacity: 0.3; cursor: default; }
+.v2-port input[type="checkbox"]:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
