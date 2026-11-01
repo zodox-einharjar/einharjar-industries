@@ -826,6 +826,9 @@ function InlinePaste({
   onCancel?: () => void
 }) {
   const [open, setOpen] = useState(!onCancel) // auto-open when used standalone
+  // Only grab focus when the user just clicked to open the box. The always-open box
+  // under each job table would otherwise steal focus and scroll the page down to it.
+  const [focusOnOpen, setFocusOnOpen] = useState(false)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -851,7 +854,7 @@ function InlinePaste({
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-[12px] text-accent hover:underline">
+      <button onClick={() => { setOpen(true); setFocusOnOpen(true) }} className="text-[12px] text-accent hover:underline">
         {replaceLabel ? 'Replace jobs (paste)' : 'Paste jobs'}
       </button>
     )
@@ -860,7 +863,7 @@ function InlinePaste({
   return (
     <div className="space-y-2">
       <textarea
-        autoFocus
+        autoFocus={focusOnOpen}
         value={text}
         onChange={e => setText(e.target.value)}
         rows={8}

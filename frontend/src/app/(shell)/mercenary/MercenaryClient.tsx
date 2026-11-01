@@ -22,7 +22,6 @@ interface MercenaryDen {
   type_id: number
   type_name: string | null
   state: string
-  deployed_at: string | null
   development_level: string
   development_amount: number
   development_next_threshold: number
@@ -73,32 +72,6 @@ function fmtRemaining(iso: string): string {
   if (days > 0) return `${days}d ${hours}h`
   if (hours > 0) return `${hours}h ${mins}m`
   return `${mins}m`
-}
-
-function fmtElapsed(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime()
-  if (diffMs <= 0) return '0m'
-  const days  = Math.floor(diffMs / 86_400_000)
-  const hours = Math.floor((diffMs % 86_400_000) / 3_600_000)
-  const mins  = Math.floor((diffMs % 3_600_000) / 60_000)
-  if (days > 0) return `${days}d ${hours}h`
-  if (hours > 0) return `${hours}h ${mins}m`
-  return `${mins}m`
-}
-
-// EVE time is UTC — the deployment input is edited and displayed in EVE
-// time, not the browser's local timezone.
-function toEveInputValue(iso: string): string {
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
-}
-
-function eveInputValueToIso(value: string): string {
-  const [datePart, timePart] = value.split('T')
-  const [y, m, d] = datePart.split('-').map(Number)
-  const [hh, mm] = timePart.split(':').map(Number)
-  return new Date(Date.UTC(y, m - 1, d, hh, mm)).toISOString()
 }
 
 const DEN_STATE_COLORS: Record<string, string> = {
@@ -189,11 +162,10 @@ export function MercenaryClient() {
   const [syncError, setSyncError] = useState<string | null>(null)
   const [syncMessage, setSyncMessage] = useState<{ text: string; ok: boolean } | null>(null)
   const [syncing, setSyncing] = useState(false)
-  const [editingDeployId, setEditingDeployId] = useState<number | null>(null)
-  const [deployValue, setDeployValue] = useState('')
-  const [deploySaving, setDeploySaving] = useState(false)
 
   const { setActions } = useTopbarActions()
+  // Only operations you can still act on; completed and expired ones are just history.
+  const liveOperations = operations.filter(op => op.state === 'Available' || op.state === 'Started')
 
   const load = useCallback(async () => {
     try {
@@ -227,39 +199,6 @@ export function MercenaryClient() {
       setTimeout(() => setSyncMessage(null), 4000)
     }
   }, [load])
-
-  const startEditDeploy = useCallback((den: MercenaryDen) => {
-    setEditingDeployId(den.id)
-    setDeployValue(toEveInputValue(den.deployed_at ?? new Date().toISOString()))
-  }, [])
-
-  const cancelEditDeploy = useCallback(() => setEditingDeployId(null), [])
-
-  const submitDeploy = useCallback(async (denId: number, value: string | null) => {
-    setDeploySaving(true)
-    try {
-      const r = await fetch(`/api/mercenary/dens/${denId}/deployed-at`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deployed_at: value }),
-      })
-      if (!r.ok) throw new Error()
-      await load()
-      setEditingDeployId(null)
-    } catch {
-      setSyncError('Failed to update deployment time.')
-      setTimeout(() => setSyncError(null), 10000)
-    } finally {
-      setDeploySaving(false)
-    }
-  }, [load])
-
-  const saveDeploy = useCallback((denId: number) => {
-    if (!deployValue) return
-    submitDeploy(denId, eveInputValueToIso(deployValue))
-  }, [deployValue, submitDeploy])
-
-  const clearDeploy = useCallback((denId: number) => submitDeploy(denId, null), [submitDeploy])
 
   useEffect(() => {
     setActions(
@@ -309,44 +248,6 @@ export function MercenaryClient() {
                 <div className="text-[11px] text-muted truncate">
                   {d.character_name} · {d.planet_name ?? `Planet ${d.planet_id}`}
                 </div>
-                <div className="text-[11px] text-faint flex items-center gap-2">
-                  {d.deployed_at ? (
-                    <>
-                      <span>Deployed {fmtElapsed(d.deployed_at)} ago</span>
-                      <button onClick={() => startEditDeploy(d)} className="text-faint hover:text-accent underline decoration-dotted">edit</button>
-                    </>
-                  ) : (
-                    <button onClick={() => startEditDeploy(d)} className="text-accent hover:underline">Set deployment time</button>
-                  )}
-                </div>
-                {editingDeployId === d.id && (
-                  <div className="flex items-center gap-1 text-[11px]">
-                    <input
-                      type="datetime-local"
-                      value={deployValue}
-                      onChange={e => setDeployValue(e.target.value)}
-                      className="bg-surface border border-wire rounded px-1 py-0.5 text-[11px] text-primary"
-                    />
-                    <span className="text-faint">EVE time</span>
-                    <button
-                      onClick={() => saveDeploy(d.id)}
-                      disabled={deploySaving}
-                      className="px-1.5 py-0.5 border border-accent text-accent rounded hover:bg-accent hover:text-canvas disabled:opacity-40"
-                    >
-                      Save
-                    </button>
-                    {d.deployed_at && (
-                      <button
-                        onClick={() => clearDeploy(d.id)}
-                        disabled={deploySaving}
-                        className="px-1.5 py-0.5 border border-wire text-faint rounded hover:text-eve-red hover:border-eve-red/40 disabled:opacity-40"
-                      >
-                        Clear
-                      </button>
-                    )}
-                    <button onClick={cancelEditDeploy} className="px-1.5 py-0.5 text-faint hover:text-secondary">Cancel</button>
-                  </div>
-                )}
                 <Meter label="Development" level={d.development_level} amount={d.development_amount} nextThreshold={d.development_next_threshold} nextLevelAt={d.development_next_level_at} />
                 <Meter
                   label="Anarchy"
@@ -392,8 +293,8 @@ export function MercenaryClient() {
 
       <div className="space-y-2">
         <h2 className="text-[13px] text-primary font-medium">Mercenary Tactical Operations</h2>
-        {operations.length === 0 ? (
-          <p className="text-faint text-[13px] py-8">No active or recent Mercenary Tactical Operations.</p>
+        {liveOperations.length === 0 ? (
+          <p className="text-faint text-[13px] py-8">No operations available or running right now.</p>
         ) : (
           <div className="border border-wire rounded overflow-x-auto">
             <table className="w-full text-[12px]">
@@ -407,7 +308,7 @@ export function MercenaryClient() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-wire">
-                {operations.map(op => {
+                {liveOperations.map(op => {
                   const isLive = op.state === 'Available' || op.state === 'Started'
                   return (
                     <tr key={op.id} className="hover:bg-surface/50">
