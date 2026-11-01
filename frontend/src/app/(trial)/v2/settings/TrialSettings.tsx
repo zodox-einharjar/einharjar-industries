@@ -598,11 +598,17 @@ function CharactersTab() {
           </div>
           <div>
             <span className="v2-field-label">Corporations</span>
+            {wallets.corporations.length === 0 && (
+              <p className="muted small">
+                No corporation wallets available. <a className="v2-link" href="/auth/login?type=corporation">Sign in with corp access</a> as
+                a character with the Accountant or Junior Accountant role to add them.
+              </p>
+            )}
             {wallets.corporations.map(corp => (
               <div key={corp.corporation_id} className="v2-checklist">
                 <span className="corp">
                   {corp.name}
-                  <span className="muted small">{corp.access_via ? `via ${corp.access_via}` : 'no one signed in with corp access'}</span>
+                  <span className="muted small">{corp.access_via ? `via ${corp.access_via}` : 'access lost, sign in again with corp access'}</span>
                 </span>
                 {corp.divisions.map(d => (
                   <label key={d.division} className={corp.access_via ? undefined : 'disabled'}>

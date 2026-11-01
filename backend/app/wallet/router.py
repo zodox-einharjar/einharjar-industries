@@ -60,6 +60,9 @@ async def sources():
                 ],
             }
             for cid, corp in sorted(corps.items(), key=lambda kv: kv[1]["name"])
+            # Only corps we hold ESI access for — plus any already chosen, so a corp
+            # that lost access still shows (with its error) and can be unticked.
+            if corp["access_via"] or selected["corps"].get(cid)
         ],
     }
 
