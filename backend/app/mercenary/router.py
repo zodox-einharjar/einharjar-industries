@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -154,7 +153,6 @@ async def list_dens():
                 "type_id": d.type_id,
                 "type_name": type_id_names.get(d.type_id),
                 "state": d.state,
-                "deployed_at": d.deployed_at.isoformat() if d.deployed_at else None,
                 "development_level": development_level,
                 "development_amount": development_amount,
                 "development_next_threshold": _next_level_threshold(development_level) or 100,
@@ -188,21 +186,6 @@ async def list_dens():
 
     result.sort(key=lambda x: x["character_name"] or "")
     return result
-
-
-class SetDeployedAtRequest(BaseModel):
-    deployed_at: datetime | None = None
-
-
-@router.patch("/dens/{den_pk}/deployed-at")
-async def set_deployed_at(den_pk: int, body: SetDeployedAtRequest):
-    async with AsyncSessionLocal() as session:
-        den = await session.get(MercenaryDen, den_pk)
-        if not den:
-            raise HTTPException(404, "Den not found")
-        den.deployed_at = body.deployed_at
-        await session.commit()
-    return {"ok": True}
 
 
 @router.get("/operations")
