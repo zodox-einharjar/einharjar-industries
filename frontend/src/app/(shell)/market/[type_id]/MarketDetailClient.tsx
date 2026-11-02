@@ -14,7 +14,7 @@ interface DepthPoint { price: number; cumulative: number }
 
 interface Location { id: number; name: string }
 
-interface ItemDetail {
+export interface ItemDetail {
   type_id: number
   name: string
   tracked: boolean
@@ -35,7 +35,7 @@ function iska(n: number | null | undefined): string {
   if (abs >= 1e9)      { val = n / 1e9; suffix = 'B' }
   else if (abs >= 1e6) { val = n / 1e6; suffix = 'M' }
   else if (abs >= 1e3) { val = n / 1e3; suffix = 'K' }
-  else                 { return parseFloat(n.toPrecision(4)).toLocaleString() }
+  else                 { return parseFloat(n.toPrecision(4)).toLocaleString('en-US') }
   return `${parseFloat(val.toPrecision(4))}${suffix}`
 }
 
@@ -51,7 +51,7 @@ function fmtSynced(iso: string | null): string {
   if (diffMin < 60) return `${diffMin}m ago`
   const diffH = Math.floor(diffMin / 60)
   if (diffH < 24) return `${diffH}h ago`
-  return new Date(iso).toLocaleDateString()
+  return new Date(iso).toISOString().slice(0, 10)
 }
 
 const SECTION = 'text-[11px] font-semibold tracking-[0.1em] text-faint uppercase mb-4'
@@ -102,7 +102,11 @@ function DepthTooltip({ active, payload }: any) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function MarketDetailClient({ initialItem, locations }: { initialItem: ItemDetail; locations: Location[] }) {
+export type { ItemDetail as MarketItemDetail }
+
+/** `embedded`: shown inside another item page, which already has the title, so only the
+ *  location picker and charts are drawn. */
+export function MarketDetailClient({ initialItem, locations, embedded = false }: { initialItem: ItemDetail; locations: Location[]; embedded?: boolean }) {
   const [item, setItem] = useState(initialItem)
   const [locationId, setLocationId] = useState(String(initialItem.location?.id ?? locations[0]?.id ?? ''))
   const [loading, setLoading] = useState(false)
@@ -138,15 +142,19 @@ export function MarketDetailClient({ initialItem, locations }: { initialItem: It
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <div className="text-[18px] font-medium text-primary">{item.name}</div>
-          <div className="text-[12px] text-faint">type_id {item.type_id}</div>
-        </div>
+        {embedded ? (
+          <div className="text-[13px] text-muted">Market history and order book</div>
+        ) : (
+          <div>
+            <div className="text-[18px] font-medium text-primary">{item.name}</div>
+            <div className="text-[12px] text-faint">type_id {item.type_id}</div>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <select value={locationId} onChange={e => onLocationChange(e.target.value)} className={INPUT}>
             {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
-          {!item.tracked && (
+          {!embedded && !item.tracked && (
             <button onClick={trackItem} disabled={tracking} className={BTN_SM_PRIMARY}>
               {tracking ? 'Tracking…' : '+ Track this item'}
             </button>

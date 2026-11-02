@@ -17,6 +17,7 @@ from .shopping.router import router as shopping_router
 from .buying.router import router as buying_router
 from .wallet.router import router as wallet_router
 from .inventory.router import router as inventory_router
+from .items.router import router as items_router
 from .market_listings.router import router as market_listings_router
 from .market_watch.router import router as market_watch_router
 from .mercenary.router import router as mercenary_router
@@ -56,6 +57,7 @@ app.include_router(shopping_router)
 app.include_router(buying_router)
 app.include_router(wallet_router)
 app.include_router(inventory_router)
+app.include_router(items_router)
 app.include_router(market_listings_router)
 app.include_router(market_watch_router)
 app.include_router(mercenary_router)

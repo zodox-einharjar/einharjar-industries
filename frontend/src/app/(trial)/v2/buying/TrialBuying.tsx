@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { MarketFreshness, Selection, TriCheckbox, isk } from '../_shared/doctrines'
 import { Switch } from '../_shared/ui'
+import { Th, sortRows, useSort } from '../_shared/sort'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -247,6 +248,17 @@ function ShoppingList({ ch, items, locationId, deselected, onToggle }: {
   onToggle: (keys: string[], on: boolean) => void
 }) {
   const keyOf = (p: Purchase) => `${locationId}:${p.channel}:${p.type_id}`
+  const sort = useSort<'item' | 'for' | 'qty' | 'cost' | 'sells' | 'profit'>(null)
+  const rows = useMemo(() => sortRows(items, sort, (p, k) => {
+    switch (k) {
+      case 'item': return p.name
+      case 'for': return purposeOf(p)
+      case 'qty': return p.qty
+      case 'cost': return p.cost
+      case 'sells': return p.local_sell
+      case 'profit': return p.for.doctrine && p.profit_per_unit != null ? p.profit_per_unit * p.qty : null
+    }
+  }), [items, sort.key, sort.dir]) // eslint-disable-line react-hooks/exhaustive-deps
   const chosen = items.filter(p => !deselected.has(keyOf(p)))
   const total = chosen.reduce((s, p) => s + p.cost, 0)
   const profit = chosen.reduce((s, p) => s + (p.for.doctrine && p.profit_per_unit != null ? p.profit_per_unit * p.qty : 0), 0)
@@ -280,16 +292,16 @@ function ShoppingList({ ch, items, locationId, deselected, onToggle }: {
                 aria-label={`Select every ${CHANNEL_LABEL[ch]} item`}
               />
             </th>
-            <th>Item</th>
-            <th>For</th>
-            <th className="num">Qty</th>
-            <th className="num">Cost</th>
-            <th className="num" title="Lowest sell order at this location">Sells here</th>
-            <th className="num" title="Resale after fees, per unit and in total. Only for doctrine items you'd list here.">Profit</th>
+            <Th label="Item" k="item" sort={sort} defaultDir="asc" />
+            <Th label="For" k="for" sort={sort} defaultDir="asc" />
+            <Th label="Qty" k="qty" sort={sort} align="right" />
+            <Th label="Cost" k="cost" sort={sort} align="right" />
+            <Th label="Sells here" k="sells" sort={sort} align="right" title="Lowest sell order at this location" />
+            <Th label="Profit" k="profit" sort={sort} align="right" title="Resale after fees, per unit and in total. Only for doctrine items you'd list here." />
           </tr>
         </thead>
         <tbody>
-          {items.map(p => {
+          {rows.map(p => {
             const k = keyOf(p)
             const on = !deselected.has(k)
             const showProfit = p.for.doctrine && p.profit_per_unit != null
@@ -303,7 +315,7 @@ function ShoppingList({ ch, items, locationId, deselected, onToggle }: {
                   />
                 </td>
                 <td>
-                  <Link href={`/market/${p.type_id}`} className="name">{p.name}</Link>
+                  <Link href={`/v2/items/${p.type_id}`} className="name">{p.name}</Link>
                   {p.is_ore && (
                     <span className="ore" title={`Reprocess into ${p.contributes_to.join(', ')}`}>
                       {' '}reprocess into {p.contributes_to.length > 2 ? `${p.contributes_to.length} materials` : p.contributes_to.join(', ')}
@@ -344,7 +356,15 @@ function LocationResult({ plan, onQty, onExclude, deselected, onToggle }: {
     .map(ch => ({ ch, items: plan.purchases.filter(p => p.channel === ch) }))
     .filter(g => g.items.length > 0)
   const unmet = plan.needs.filter(n => n.unmet > 0)
-  const needs = showCovered ? plan.needs : unmet
+  const needSort = useSort<'item' | 'for' | 'buy' | 'covered'>(null)
+  const needs = sortRows(showCovered ? plan.needs : unmet, needSort, (n, k) => {
+    switch (k) {
+      case 'item': return n.name
+      case 'for': return [n.for.doctrine > 0 && 'doctrine', n.for.project > 0 && 'project', n.for.want > 0 && 'want'].filter(Boolean).join(' ')
+      case 'buy': return n.qty
+      case 'covered': return n.qty ? n.covered / n.qty : 1
+    }
+  })
   const coveredCount = plan.needs.length - unmet.length
 
   return (
@@ -394,10 +414,10 @@ function LocationResult({ plan, onQty, onExclude, deselected, onToggle }: {
             <table className="v2-table compact">
               <thead>
                 <tr>
-                  <th>Item</th>
-                  <th>For</th>
-                  <th className="num">Buy</th>
-                  <th className="num">Covered</th>
+                  <Th label="Item" k="item" sort={needSort} defaultDir="asc" />
+                  <Th label="For" k="for" sort={needSort} defaultDir="asc" />
+                  <Th label="Buy" k="buy" sort={needSort} align="right" />
+                  <Th label="Covered" k="covered" sort={needSort} align="right" defaultDir="asc" title="Sorts by the share of the need that is covered" />
                   <th></th>
                 </tr>
               </thead>
@@ -409,7 +429,7 @@ function LocationResult({ plan, onQty, onExclude, deselected, onToggle }: {
                     <tr key={n.type_id} className={tone}>
                       <td>
                         <span className="dot" aria-hidden />
-                        <Link href={`/market/${n.type_id}`} className="name">{n.name}</Link>
+                        <Link href={`/v2/items/${n.type_id}`} className="name">{n.name}</Link>
                         {n.unmet_reason && (
                           <span className="reason">
                             {n.unmet_reason === 'unprofitable' ? 'no profitable supply' : 'not enough supply'}
@@ -451,6 +471,7 @@ export function TrialBuying() {
   const router = useRouter()
   const urlFits = searchParams.get('fits')
   const urlProjects = searchParams.get('projects')
+  const flipSort = useSort<'item' | 'qty' | 'offer' | 'sells' | 'profit' | 'velocity'>(null)
 
   const [options, setOptions] = useState<Options | null>(null)
   const [hydrated, setHydrated] = useState(false)
@@ -856,20 +877,29 @@ export function TrialBuying() {
             <table className="v2-table compact">
               <thead>
                 <tr>
-                  <th>Item</th>
-                  <th className="num">Qty</th>
-                  <th className="num">Offer</th>
-                  <th className="num">Sells for</th>
-                  <th className="num">Profit</th>
-                  <th className="num">Sells per day</th>
+                  <Th label="Item" k="item" sort={flipSort} defaultDir="asc" />
+                  <Th label="Qty" k="qty" sort={flipSort} align="right" />
+                  <Th label="Offer" k="offer" sort={flipSort} align="right" />
+                  <Th label="Sells for" k="sells" sort={flipSort} align="right" />
+                  <Th label="Profit" k="profit" sort={flipSort} align="right" />
+                  <Th label="Sells per day" k="velocity" sort={flipSort} align="right" />
                 </tr>
               </thead>
               <tbody>
-                {[...plan.flip.recommended, ...plan.flip.unprofitable, ...plan.flip.unpriced].map(e => {
+                {sortRows([...plan.flip.recommended, ...plan.flip.unprofitable, ...plan.flip.unpriced], flipSort, (e, k) => {
+                  switch (k) {
+                    case 'item': return e.name
+                    case 'qty': return e.qty
+                    case 'offer': return e.unit_price
+                    case 'sells': return e.sell_price
+                    case 'profit': return e.total_profit
+                    case 'velocity': return e.velocity_daily
+                  }
+                }).map(e => {
                   const tone = e.total_profit == null ? 'is-unset' : e.total_profit > 0 ? 'is-ready' : 'is-short'
                   return (
                     <tr key={e.type_id} className={tone}>
-                      <td><span className="dot" aria-hidden />{e.name}</td>
+                      <td><span className="dot" aria-hidden /><Link href={`/v2/items/${e.type_id}`} className="name">{e.name}</Link></td>
                       <td className="num">{e.qty.toLocaleString()}</td>
                       <td className="num muted">{isk(e.unit_price)}</td>
                       <td className="num muted">{e.sell_price != null ? isk(e.sell_price) : 'not on market'}</td>

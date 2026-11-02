@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   DoctrineCard, DoctrineReport, MarketFreshness, Selection, StatusLegend, TriCheckbox, fitFill, isk, sortDoctrines,
 } from '../_shared/doctrines'
+import { Th, useSort } from '../_shared/sort'
 
 // ── Types for the per-fit and per-item endpoints ─────────────────────────────
 
@@ -50,31 +51,6 @@ function tone(stock: number, target: number): 'is-ready' | 'is-partial' | 'is-sh
 
 function matches(q: string, ...fields: (string | null | undefined)[]): boolean {
   return fields.some(f => (f ?? '').toLowerCase().includes(q))
-}
-
-// ── Sortable table header ─────────────────────────────────────────────────────
-
-function useSort<K extends string>(initial: K, initialDir: 'asc' | 'desc' = 'desc') {
-  const [key, setKey] = useState<K>(initial)
-  const [dir, setDir] = useState<'asc' | 'desc'>(initialDir)
-  const toggle = (k: K, defaultDir: 'asc' | 'desc' = 'desc') => {
-    if (k === key) setDir(d => (d === 'asc' ? 'desc' : 'asc'))
-    else { setKey(k); setDir(defaultDir) }
-  }
-  return { key, dir, toggle }
-}
-
-function Th<K extends string>({ label, k, sort, align, defaultDir }: {
-  label: string; k: K; sort: ReturnType<typeof useSort<K>>; align?: 'right'; defaultDir?: 'asc' | 'desc'
-}) {
-  const active = sort.key === k
-  return (
-    <th className={align === 'right' ? 'num' : undefined} aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-      <button onClick={() => sort.toggle(k, defaultDir)} className={active ? 'on' : undefined}>
-        {label}{active && <span aria-hidden>{sort.dir === 'asc' ? ' ↑' : ' ↓'}</span>}
-      </button>
-    </th>
-  )
 }
 
 // ── By fit ───────────────────────────────────────────────────────────────────
@@ -238,7 +214,7 @@ function ItemsView({ items, query, shortOnly }: { items: FleetItem[]; query: str
               <tr key={`${i.type_id}-${i.location_name}`} className={i.shortfall === 0 ? 'is-ready' : i.qty_available === 0 ? 'is-short' : 'is-partial'}>
                 <td>
                   <span className="dot" aria-hidden />
-                  <Link href={`/market/${i.type_id}`} className="name">{i.name}</Link>
+                  <Link href={`/v2/items/${i.type_id}`} className="name">{i.name}</Link>
                 </td>
                 <td className="muted">{i.location_name}</td>
                 <td className="num">{i.total_needed.toLocaleString()}</td>

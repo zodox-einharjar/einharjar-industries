@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { Archivo, Big_Shoulders_Display } from 'next/font/google'
 import { getCurrentUser } from '@/lib/auth'
 import { TopNav } from './v2/_shared/TopNav'
+import { ItemSearch } from './v2/_shared/ItemSearch'
 import { RouteBaseProvider } from '@/lib/route-base'
 import { TopbarProvider } from '@/lib/topbar-context'
 import './trial.css'
@@ -26,6 +27,7 @@ export default async function TrialLayout({ children }: { children: React.ReactN
       <header className="v2-bar">
         <Link href="/v2" className="v2-wordmark">Einharjar Industries</Link>
         <TopNav />
+        <ItemSearch />
         <Link href="/character" className="v2-pilot" title="Character">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={user.portrait_url} alt="" width={28} height={28} />
