@@ -263,7 +263,7 @@ function QtyInput({ need, locationId, onQty, value = need.qty, others = 0 }: {
   )
 }
 
-type ShopSortKey = 'item' | 'for' | 'qty' | 'price' | 'freight' | 'staging' | 'sold' | 'cost' | 'profit'
+type ShopSortKey = 'item' | 'for' | 'qty' | 'price' | 'freight' | 'staging' | 'sold' | 'cost' | 'pct' | 'profit'
 
 function ShoppingList({ ch, items, locationId, deselected, onToggle, needByType, onQty, onExclude }: {
   ch: Channel
@@ -277,6 +277,7 @@ function ShoppingList({ ch, items, locationId, deselected, onToggle, needByType,
 }) {
   const keyOf = (p: Purchase) => `${locationId}:${p.channel}:${p.type_id}`
   const profitOf = (p: Purchase) => (p.for.doctrine && p.profit_per_unit != null ? p.profit_per_unit * p.qty : null)
+  const pctOf = (p: Purchase) => (profitOf(p) != null && p.unit_cost ? (p.profit_per_unit! / p.unit_cost) * 100 : null)
   const sort = useSort<ShopSortKey>(null)
   const rows = useMemo(() => sortRows(items, sort, (p, k) => {
     switch (k) {
@@ -288,6 +289,7 @@ function ShoppingList({ ch, items, locationId, deselected, onToggle, needByType,
       case 'staging': return p.local_sell
       case 'sold': return p.sold_30d
       case 'cost': return p.cost
+      case 'pct': return pctOf(p)
       case 'profit': return profitOf(p)
     }
   }), [items, sort.key, sort.dir]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -334,6 +336,7 @@ function ShoppingList({ ch, items, locationId, deselected, onToggle, needByType,
               <Th label="Staging price" k="staging" sort={sort} align="right" title="Lowest sell order at this location" />
               <Th label="Sold 30d" k="sold" sort={sort} align="right" title="Units traded in the last 30 days. ESI history is per region, so for a structure this is the whole region." />
               <Th label="Cost" k="cost" sort={sort} align="right" title="Total, freight included" />
+              <Th label="Profit %" k="pct" sort={sort} align="right" title="Profit as a share of what you pay, freight included" />
               <Th label="Profit" k="profit" sort={sort} align="right" title="Staging price after broker fee, sales tax and SCC, minus what you pay per unit including freight, × qty. Only for doctrine items you'd list here." />
               <th></th>
             </tr>
@@ -343,7 +346,7 @@ function ShoppingList({ ch, items, locationId, deselected, onToggle, needByType,
               const k = keyOf(p)
               const on = !deselected.has(k)
               const prof = profitOf(p)
-              const pct = prof != null && p.unit_cost ? (p.profit_per_unit! / p.unit_cost) * 100 : null
+              const pct = pctOf(p)
               const need = p.is_ore ? undefined : needByType.get(p.type_id)
               return (
                 <tr key={k} className={on ? undefined : 'off'}>
@@ -355,6 +358,14 @@ function ShoppingList({ ch, items, locationId, deselected, onToggle, needByType,
                   </td>
                   <td>
                     <Link href={`/v2/items/${p.type_id}`} className="name">{p.name}</Link>
+                    {need && need.unmet > 0 && (
+                      <span
+                        className="v2-short-tag"
+                        title={`${need.unmet_reason === 'unprofitable' ? 'No profitable supply' : 'Not enough supply'}: ${need.covered.toLocaleString('en-US')} of the ${need.qty.toLocaleString('en-US')} needed can be bought`}
+                      >
+                        {need.covered.toLocaleString('en-US')} of {need.qty.toLocaleString('en-US')}
+                      </span>
+                    )}
                     {p.is_ore && (
                       <span className="ore" title={`Reprocess into ${p.contributes_to.join(', ')}`}>
                         {' '}reprocess into {p.contributes_to.length > 2 ? `${p.contributes_to.length} materials` : p.contributes_to.join(', ')}
@@ -376,10 +387,15 @@ function ShoppingList({ ch, items, locationId, deselected, onToggle, needByType,
                   <td className="num muted">{p.sold_30d != null ? p.sold_30d.toLocaleString('en-US') : '–'}</td>
                   <td className="num">{isk(p.cost)}</td>
                   <td className="num">
+                    {pct != null
+                      ? Math.round(pct) === 0
+                        ? <span className="muted">0%</span>
+                        : <span className={pct > 0 ? 'up' : 'down'}>{pct > 0 ? '+' : ''}{Math.round(pct)}%</span>
+                      : <span className="muted">–</span>}
+                  </td>
+                  <td className="num">
                     {prof != null
-                      ? <span className={prof >= 0 ? 'up' : 'down'} title={`${isk(p.profit_per_unit)} per unit`}>
-                          {isk(prof)}{pct != null && <span className="muted"> ({pct >= 0 ? '+' : ''}{pct.toFixed(0)}%)</span>}
-                        </span>
+                      ? <span className={prof >= 0 ? 'up' : 'down'} title={`${isk(p.profit_per_unit)} per unit`}>{isk(prof)}</span>
                       : <span className="muted">–</span>}
                   </td>
                   <td className="num">
@@ -408,7 +424,8 @@ function LocationResult({ plan, onQty, onExclude, deselected, onToggle }: {
     .map(ch => ({ ch, items: plan.purchases.filter(p => p.channel === ch) }))
     .filter(g => g.items.length > 0)
   const needByType = useMemo(() => new Map(plan.needs.map(n => [n.type_id, n])), [plan.needs])
-  const unmet = plan.needs.filter(n => n.unmet > 0)
+  // Needs nothing could be bought for at all have no shopping row to carry a tag.
+  const noSupply = plan.needs.filter(n => n.covered === 0 && n.qty > 0)
 
   return (
     <section className="v2-buy-loc" aria-label={plan.location_name}>
@@ -426,22 +443,6 @@ function LocationResult({ plan, onQty, onExclude, deselected, onToggle }: {
         <p className="v2-warn">No freight route from the buyback location to {plan.location_name}, so buyback prices here leave out freight.</p>
       )}
 
-      {unmet.length > 0 && (
-        <p className="v2-buy-short">
-          <span className="label">Couldn&apos;t fully cover</span>
-          {unmet.map(n => (
-            <span
-              key={n.type_id} className={`v2-short-chip ${n.covered > 0 ? 'is-partial' : 'is-short'}`}
-              title={`${n.unmet_reason === 'unprofitable' ? 'No profitable supply' : 'Not enough supply'}. For: ${[...new Set(n.doctrines.map(d => d.doctrine_name)), ...n.projects].join(', ') || 'want list'}`}
-            >
-              <Link href={`/v2/items/${n.type_id}`} className="name">{n.name}</Link>
-              <span className="muted">{n.covered.toLocaleString('en-US')} of {n.qty.toLocaleString('en-US')}</span>
-              <button className="v2-x" onClick={() => onExclude(n.type_id)} aria-label={`Don't buy ${n.name}`} title="Don't buy this">✕</button>
-            </span>
-          ))}
-        </p>
-      )}
-
       <div className="v2-buy-lists">
         <div className="v2-col-head">
           <h4>Shopping lists</h4>
@@ -455,6 +456,19 @@ function LocationResult({ plan, onQty, onExclude, deselected, onToggle }: {
             needByType={needByType} onQty={onQty} onExclude={onExclude}
           />
         ))}
+        {noSupply.length > 0 && (
+          <p className="v2-nosupply">
+            No supply for:{' '}
+            {noSupply.map((n, i) => (
+              <span key={n.type_id}>
+                {i > 0 && ', '}
+                <Link href={`/v2/items/${n.type_id}`} className="name">{n.name}</Link>
+                <span className="muted"> ({n.qty.toLocaleString('en-US')})</span>
+                <button className="v2-x" onClick={() => onExclude(n.type_id)} aria-label={`Don't buy ${n.name}`} title="Don't buy this">✕</button>
+              </span>
+            ))}
+          </p>
+        )}
       </div>
     </section>
   )
