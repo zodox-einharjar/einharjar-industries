@@ -28,7 +28,7 @@ export default async function TrialLayout({ children }: { children: React.ReactN
         <Link href="/v2" className="v2-wordmark">Einharjar Industries</Link>
         <TopNav />
         <ItemSearch />
-        <Link href="/character" className="v2-pilot" title="Character">
+        <Link href="/v2/character" className="v2-pilot" title="Character">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={user.portrait_url} alt="" width={28} height={28} />
           <span>{user.character_name}</span>
