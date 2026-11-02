@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from ..doctrines.shortfall import aggregate_shortfalls
 from ..industry.shortfall import aggregate_project_needs
 from ..inventory.free_stock import free_qty_by_location
-from ..market.velocity import daily_velocity
+from ..market.velocity import WINDOW_DAYS, daily_velocity
 from ..models import FreightRoute, Location, MarketOrder
 from ..reprocessing.optimizer import solve_ore_lp
 from ..sde import (
@@ -312,6 +312,9 @@ async def build_buying_plan(session, inp: PlanInputs) -> dict:
         purchase_list = sorted(purchases.values(), key=lambda p: (p["channel"], -p["cost"]))
         for p in purchase_list:
             p["unit_cost"] = p["cost"] / p["qty"] if p["qty"] else None
+            # Split of unit_cost: what the seller is paid vs. freight to this location.
+            p["unit_price"] = p["raw_cost"] / p["qty"] if p["qty"] else None
+            p["freight_per_unit"] = (p["cost"] - p["raw_cost"]) / p["qty"] if p["qty"] else None
             p["doctrines"] = sorted(p["doctrines"])
             p["projects"] = sorted(p["projects"])
             # Resale value at the destination — meaningful for items you'd list there
@@ -351,6 +354,17 @@ async def build_buying_plan(session, inp: PlanInputs) -> dict:
             "total_cost": sum(p["cost"] for p in purchase_list),
             "total_m3": sum(p["m3"] for p in purchase_list),
         })
+
+    # Units sold over the last 30 days for every line on the shopping lists. ESI market
+    # history is per region, so for a structure this counts the whole region's trades.
+    sold_keys = {(lo["location_id"], p["type_id"]) for lo in locations_out for p in lo["purchases"]}
+    missing = [k for k in sold_keys if k not in velocity]
+    if missing:
+        velocity.update(await _velocities(missing, region_by_loc))
+    for lo in locations_out:
+        for p in lo["purchases"]:
+            v = velocity.get((lo["location_id"], p["type_id"]))
+            p["sold_30d"] = round(v * WINDOW_DAYS) if v is not None else None
 
     # Needs the user removed or zeroed, so they can be restored in the UI.
     hidden = [

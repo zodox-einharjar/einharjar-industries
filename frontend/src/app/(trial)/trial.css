@@ -676,3 +676,15 @@
 .v2-item-block h3 { font-size: 22px; margin-bottom: 10px; }
 .v2-item-block h4 { font-size: 15px; font-weight: 600; margin: 18px 0 8px; color: var(--dust); }
 .v2-item-market { margin-top: 32px; }
+
+/* Buying: one shopping table per source, plus a short-needs panel above them */
+.v2-buy-short { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 18px; font-size: 14px; }
+.v2-buy-short .label { color: var(--dust); margin-right: 4px; }
+.v2-short-chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 2px 4px 2px 10px;
+  border: 1px solid var(--seam); border-left: 3px solid var(--status); border-radius: 4px; background: var(--plate);
+}
+.v2-short-chip .name:hover { text-decoration: underline; }
+.v2-short-chip .muted { color: var(--dust); font-size: 13px; }
+.v2-list-scroll { overflow-x: auto; }
+.v2-table .small { font-size: 12px; }

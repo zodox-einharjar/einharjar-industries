@@ -39,6 +39,9 @@ interface Purchase {
   projects: string[]
   local_sell: number | null
   profit_per_unit: number | null
+  unit_price: number | null
+  freight_per_unit: number | null
+  sold_30d: number | null
 }
 
 interface Need {
@@ -240,29 +243,59 @@ function purposeOf(p: Purchase): string {
   return parts.join(', ')
 }
 
-function ShoppingList({ ch, items, locationId, deselected, onToggle }: {
+/** Quantity editor that re-plans on change. It shows `value` (what this row buys) and
+ *  sets the need to the typed number plus `others`: what other sources already cover. */
+function QtyInput({ need, locationId, onQty, value = need.qty, others = 0 }: {
+  need: Need; locationId: number; onQty: (key: string, qty: number | null) => void
+  value?: number; others?: number
+}) {
+  return (
+    <input
+      type="number" min={0} value={value}
+      className={`v2-qty${need.edited ? ' edited' : ''}`}
+      aria-label={`Quantity of ${need.name} to buy`}
+      title={need.edited ? `Changed from ${need.qty_natural.toLocaleString('en-US')}` : 'Change to re-plan'}
+      onChange={e => {
+        const v = Math.max(0, Math.floor(Number(e.target.value) || 0)) + others
+        onQty(`${locationId}:${need.type_id}`, v === need.qty_natural ? null : v)
+      }}
+    />
+  )
+}
+
+type ShopSortKey = 'item' | 'for' | 'qty' | 'price' | 'freight' | 'staging' | 'sold' | 'cost' | 'profit'
+
+function ShoppingList({ ch, items, locationId, deselected, onToggle, needByType, onQty, onExclude }: {
   ch: Channel
   items: Purchase[]
   locationId: number
   deselected: Set<string>
   onToggle: (keys: string[], on: boolean) => void
+  needByType: Map<number, Need>
+  onQty: (key: string, qty: number | null) => void
+  onExclude: (typeId: number) => void
 }) {
   const keyOf = (p: Purchase) => `${locationId}:${p.channel}:${p.type_id}`
-  const sort = useSort<'item' | 'for' | 'qty' | 'cost' | 'sells' | 'profit'>(null)
+  const profitOf = (p: Purchase) => (p.for.doctrine && p.profit_per_unit != null ? p.profit_per_unit * p.qty : null)
+  const sort = useSort<ShopSortKey>(null)
   const rows = useMemo(() => sortRows(items, sort, (p, k) => {
     switch (k) {
       case 'item': return p.name
       case 'for': return purposeOf(p)
       case 'qty': return p.qty
+      case 'price': return p.unit_price
+      case 'freight': return p.freight_per_unit
+      case 'staging': return p.local_sell
+      case 'sold': return p.sold_30d
       case 'cost': return p.cost
-      case 'sells': return p.local_sell
-      case 'profit': return p.for.doctrine && p.profit_per_unit != null ? p.profit_per_unit * p.qty : null
+      case 'profit': return profitOf(p)
     }
   }), [items, sort.key, sort.dir]) // eslint-disable-line react-hooks/exhaustive-deps
   const chosen = items.filter(p => !deselected.has(keyOf(p)))
   const total = chosen.reduce((s, p) => s + p.cost, 0)
-  const profit = chosen.reduce((s, p) => s + (p.for.doctrine && p.profit_per_unit != null ? p.profit_per_unit * p.qty : 0), 0)
-  const anyProfit = items.some(p => p.for.doctrine && p.profit_per_unit != null)
+  const profit = chosen.reduce((s, p) => s + (profitOf(p) ?? 0), 0)
+  const anyProfit = items.some(p => profitOf(p) != null)
+  const anyFreight = items.some(p => (p.freight_per_unit ?? 0) > 0)
   const keys = items.map(keyOf)
   const allOn = chosen.length === items.length
   const someOn = chosen.length > 0
@@ -281,65 +314,85 @@ function ShoppingList({ ch, items, locationId, deselected, onToggle }: {
           primary={ch === 'jita'}
         />
       </div>
-      <table className="v2-table compact flush">
-        <thead>
-          <tr>
-            <th className="sel">
-              <input
-                type="checkbox" className="v2-check" checked={allOn}
-                ref={el => { if (el) el.indeterminate = someOn && !allOn }}
-                onChange={() => onToggle(keys, !allOn)}
-                aria-label={`Select every ${CHANNEL_LABEL[ch]} item`}
-              />
-            </th>
-            <Th label="Item" k="item" sort={sort} defaultDir="asc" />
-            <Th label="For" k="for" sort={sort} defaultDir="asc" />
-            <Th label="Qty" k="qty" sort={sort} align="right" />
-            <Th label="Cost" k="cost" sort={sort} align="right" />
-            <Th label="Sells here" k="sells" sort={sort} align="right" title="Lowest sell order at this location" />
-            <Th label="Profit" k="profit" sort={sort} align="right" title="Resale after fees, per unit and in total. Only for doctrine items you'd list here." />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(p => {
-            const k = keyOf(p)
-            const on = !deselected.has(k)
-            const showProfit = p.for.doctrine && p.profit_per_unit != null
-            const pct = showProfit && p.unit_cost ? (p.profit_per_unit! / p.unit_cost) * 100 : null
-            return (
-              <tr key={k} className={on ? undefined : 'off'}>
-                <td className="sel">
-                  <input
-                    type="checkbox" className="v2-check" checked={on}
-                    onChange={() => onToggle([k], !on)} aria-label={`Buy ${p.name}`}
-                  />
-                </td>
-                <td>
-                  <Link href={`/v2/items/${p.type_id}`} className="name">{p.name}</Link>
-                  {p.is_ore && (
-                    <span className="ore" title={`Reprocess into ${p.contributes_to.join(', ')}`}>
-                      {' '}reprocess into {p.contributes_to.length > 2 ? `${p.contributes_to.length} materials` : p.contributes_to.join(', ')}
-                    </span>
-                  )}
-                </td>
-                <td className="muted for" title={[...p.doctrines, ...p.projects.map(x => `Project: ${x}`)].join('\n') || undefined}>
-                  {purposeOf(p)}
-                </td>
-                <td className="num">{p.qty.toLocaleString()}</td>
-                <td className="num" title={p.unit_cost != null ? `${isk(p.unit_cost)} each, freight included` : undefined}>{isk(p.cost)}</td>
-                <td className="num muted">{p.local_sell != null ? isk(p.local_sell) : '–'}</td>
-                <td className="num">
-                  {showProfit
-                    ? <span className={p.profit_per_unit! >= 0 ? 'up' : 'down'} title={`${isk(p.profit_per_unit)} per unit`}>
-                        {isk(p.profit_per_unit! * p.qty)}{pct != null && <span className="muted"> ({pct >= 0 ? '+' : ''}{pct.toFixed(0)}%)</span>}
+      <div className="v2-list-scroll">
+        <table className="v2-table compact flush">
+          <thead>
+            <tr>
+              <th className="sel">
+                <input
+                  type="checkbox" className="v2-check" checked={allOn}
+                  ref={el => { if (el) el.indeterminate = someOn && !allOn }}
+                  onChange={() => onToggle(keys, !allOn)}
+                  aria-label={`Select every ${CHANNEL_LABEL[ch]} item`}
+                />
+              </th>
+              <Th label="Item" k="item" sort={sort} defaultDir="asc" />
+              <Th label="For" k="for" sort={sort} defaultDir="asc" />
+              <Th label="Qty" k="qty" sort={sort} align="right" title="What you buy here. Change it to re-plan." />
+              <Th label={ch === 'jita' ? 'Jita/unit' : 'Price/unit'} k="price" sort={sort} align="right" title="Average price paid per unit, before freight" />
+              {anyFreight && <Th label="Freight/unit" k="freight" sort={sort} align="right" title="m³ × ISK/m³ plus collateral, from Settings → Locations" />}
+              <Th label="Staging price" k="staging" sort={sort} align="right" title="Lowest sell order at this location" />
+              <Th label="Sold 30d" k="sold" sort={sort} align="right" title="Units traded in the last 30 days. ESI history is per region, so for a structure this is the whole region." />
+              <Th label="Cost" k="cost" sort={sort} align="right" title="Total, freight included" />
+              <Th label="Profit" k="profit" sort={sort} align="right" title="Staging price after broker fee, sales tax and SCC, minus what you pay per unit including freight, × qty. Only for doctrine items you'd list here." />
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(p => {
+              const k = keyOf(p)
+              const on = !deselected.has(k)
+              const prof = profitOf(p)
+              const pct = prof != null && p.unit_cost ? (p.profit_per_unit! / p.unit_cost) * 100 : null
+              const need = p.is_ore ? undefined : needByType.get(p.type_id)
+              return (
+                <tr key={k} className={on ? undefined : 'off'}>
+                  <td className="sel">
+                    <input
+                      type="checkbox" className="v2-check" checked={on}
+                      onChange={() => onToggle([k], !on)} aria-label={`Buy ${p.name}`}
+                    />
+                  </td>
+                  <td>
+                    <Link href={`/v2/items/${p.type_id}`} className="name">{p.name}</Link>
+                    {p.is_ore && (
+                      <span className="ore" title={`Reprocess into ${p.contributes_to.join(', ')}`}>
+                        {' '}reprocess into {p.contributes_to.length > 2 ? `${p.contributes_to.length} materials` : p.contributes_to.join(', ')}
                       </span>
-                    : <span className="muted">–</span>}
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+                    )}
+                  </td>
+                  <td className="muted for" title={[...p.doctrines, ...p.projects.map(x => `Project: ${x}`)].join('\n') || undefined}>
+                    {purposeOf(p)}
+                  </td>
+                  <td className="num">
+                    {need
+                      ? <QtyInput need={need} locationId={locationId} onQty={onQty}
+                          value={p.qty} others={Math.max(0, need.covered - p.qty)} />
+                      : p.qty.toLocaleString('en-US')}
+                  </td>
+                  <td className="num">{isk(p.unit_price)}</td>
+                  {anyFreight && <td className="num muted">{p.freight_per_unit ? isk(p.freight_per_unit) : '–'}</td>}
+                  <td className="num muted">{p.local_sell != null ? isk(p.local_sell) : '–'}</td>
+                  <td className="num muted">{p.sold_30d != null ? p.sold_30d.toLocaleString('en-US') : '–'}</td>
+                  <td className="num">{isk(p.cost)}</td>
+                  <td className="num">
+                    {prof != null
+                      ? <span className={prof >= 0 ? 'up' : 'down'} title={`${isk(p.profit_per_unit)} per unit`}>
+                          {isk(prof)}{pct != null && <span className="muted"> ({pct >= 0 ? '+' : ''}{pct.toFixed(0)}%)</span>}
+                        </span>
+                      : <span className="muted">–</span>}
+                  </td>
+                  <td className="num">
+                    {!p.is_ore && (
+                      <button className="v2-x" onClick={() => onExclude(p.type_id)} aria-label={`Don't buy ${p.name}`} title="Don't buy this">✕</button>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -351,21 +404,11 @@ function LocationResult({ plan, onQty, onExclude, deselected, onToggle }: {
   deselected: Set<string>
   onToggle: (keys: string[], on: boolean) => void
 }) {
-  const [showCovered, setShowCovered] = useState(false)
   const byChannel = CHANNEL_ORDER
     .map(ch => ({ ch, items: plan.purchases.filter(p => p.channel === ch) }))
     .filter(g => g.items.length > 0)
+  const needByType = useMemo(() => new Map(plan.needs.map(n => [n.type_id, n])), [plan.needs])
   const unmet = plan.needs.filter(n => n.unmet > 0)
-  const needSort = useSort<'item' | 'for' | 'buy' | 'covered'>(null)
-  const needs = sortRows(showCovered ? plan.needs : unmet, needSort, (n, k) => {
-    switch (k) {
-      case 'item': return n.name
-      case 'for': return [n.for.doctrine > 0 && 'doctrine', n.for.project > 0 && 'project', n.for.want > 0 && 'want'].filter(Boolean).join(' ')
-      case 'buy': return n.qty
-      case 'covered': return n.qty ? n.covered / n.qty : 1
-    }
-  })
-  const coveredCount = plan.needs.length - unmet.length
 
   return (
     <section className="v2-buy-loc" aria-label={plan.location_name}>
@@ -373,7 +416,7 @@ function LocationResult({ plan, onQty, onExclude, deselected, onToggle }: {
         <h3>{plan.location_name}</h3>
         <p>
           {isk(plan.total_cost)} ISK for {plan.needs.length} item{plan.needs.length === 1 ? '' : 's'},{' '}
-          {plan.total_m3.toLocaleString(undefined, { maximumFractionDigits: 0 })} m³ to move
+          {plan.total_m3.toLocaleString('en-US', { maximumFractionDigits: 0 })} m³ to move
         </p>
       </div>
       {plan.jita_freight_missing && (
@@ -383,82 +426,35 @@ function LocationResult({ plan, onQty, onExclude, deselected, onToggle }: {
         <p className="v2-warn">No freight route from the buyback location to {plan.location_name}, so buyback prices here leave out freight.</p>
       )}
 
-      <div className="v2-buy-grid">
-        <div className="v2-buy-lists">
-          <div className="v2-col-head">
-            <h4>Shopping lists</h4>
-            <p>What to buy, by where to buy it. Untick anything you&apos;ll skip; copy buttons only include ticked items.</p>
-          </div>
-          {byChannel.length === 0 && <p className="v2-empty">Nothing to buy here.</p>}
-          {byChannel.map(({ ch, items }) => (
-            <ShoppingList key={ch} ch={ch} items={items} locationId={plan.location_id} deselected={deselected} onToggle={onToggle} />
+      {unmet.length > 0 && (
+        <p className="v2-buy-short">
+          <span className="label">Couldn&apos;t fully cover</span>
+          {unmet.map(n => (
+            <span
+              key={n.type_id} className={`v2-short-chip ${n.covered > 0 ? 'is-partial' : 'is-short'}`}
+              title={`${n.unmet_reason === 'unprofitable' ? 'No profitable supply' : 'Not enough supply'}. For: ${[...new Set(n.doctrines.map(d => d.doctrine_name)), ...n.projects].join(', ') || 'want list'}`}
+            >
+              <Link href={`/v2/items/${n.type_id}`} className="name">{n.name}</Link>
+              <span className="muted">{n.covered.toLocaleString('en-US')} of {n.qty.toLocaleString('en-US')}</span>
+              <button className="v2-x" onClick={() => onExclude(n.type_id)} aria-label={`Don't buy ${n.name}`} title="Don't buy this">✕</button>
+            </span>
           ))}
-        </div>
+        </p>
+      )}
 
-        <div className="v2-buy-needs">
-          <div className="v2-col-head">
-            <h4>What these cover</h4>
-            <p>
-              {unmet.length === 0
-                ? `All ${plan.needs.length} needs here are covered.`
-                : `${coveredCount} of ${plan.needs.length} needs fully covered.`}{' '}
-              Change a quantity or remove an item to re-plan.
-            </p>
-            <button className="v2-btn" onClick={() => setShowCovered(v => !v)}>
-              {showCovered ? 'Show only uncovered' : `Show all ${plan.needs.length} needs`}
-            </button>
-          </div>
-          {needs.length === 0 ? (
-            <p className="v2-calm">Nothing uncovered.</p>
-          ) : (
-            <table className="v2-table compact">
-              <thead>
-                <tr>
-                  <Th label="Item" k="item" sort={needSort} defaultDir="asc" />
-                  <Th label="For" k="for" sort={needSort} defaultDir="asc" />
-                  <Th label="Buy" k="buy" sort={needSort} align="right" />
-                  <Th label="Covered" k="covered" sort={needSort} align="right" defaultDir="asc" title="Sorts by the share of the need that is covered" />
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {needs.map(n => {
-                  const key = `${plan.location_id}:${n.type_id}`
-                  const tone = n.unmet === 0 ? 'is-ready' : n.covered > 0 ? 'is-partial' : 'is-short'
-                  return (
-                    <tr key={n.type_id} className={tone}>
-                      <td>
-                        <span className="dot" aria-hidden />
-                        <Link href={`/v2/items/${n.type_id}`} className="name">{n.name}</Link>
-                        {n.unmet_reason && (
-                          <span className="reason">
-                            {n.unmet_reason === 'unprofitable' ? 'no profitable supply' : 'not enough supply'}
-                          </span>
-                        )}
-                      </td>
-                      <td className="muted"><NeedTags n={n} /></td>
-                      <td className="num">
-                        <input
-                          type="number" min={0} value={n.qty}
-                          className={`v2-qty${n.edited ? ' edited' : ''}`}
-                          aria-label={`Quantity of ${n.name} to buy`}
-                          onChange={e => {
-                            const v = Math.max(0, Math.floor(Number(e.target.value) || 0))
-                            onQty(key, v === n.qty_natural ? null : v)
-                          }}
-                        />
-                      </td>
-                      <td className="num"><b>{n.covered.toLocaleString()}</b></td>
-                      <td className="num">
-                        <button className="v2-x" onClick={() => onExclude(n.type_id)} aria-label={`Don't buy ${n.name}`} title="Don't buy this">✕</button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          )}
+      <div className="v2-buy-lists">
+        <div className="v2-col-head">
+          <h4>Shopping lists</h4>
+          <p>What to buy, by where to buy it. Untick anything you&apos;ll skip; copy buttons only include ticked items. Change a quantity or press ✕ to re-plan.</p>
         </div>
+        {byChannel.length === 0 && <p className="v2-empty">Nothing to buy here.</p>}
+        {byChannel.map(({ ch, items }) => (
+          <ShoppingList
+            key={ch} ch={ch} items={items} locationId={plan.location_id}
+            deselected={deselected} onToggle={onToggle}
+            needByType={needByType} onQty={onQty} onExclude={onExclude}
+          />
+        ))}
       </div>
     </section>
   )
