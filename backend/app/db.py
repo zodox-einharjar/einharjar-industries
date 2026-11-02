@@ -39,4 +39,5 @@ _COLUMN_MIGRATIONS = [
     "ALTER TABLE mercenary_dens ADD COLUMN IF NOT EXISTS deployed_at TIMESTAMPTZ",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS discord_notified_accepted BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS discord_notified_finished BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE locations ADD COLUMN IF NOT EXISTS use_for_inventory BOOLEAN NOT NULL DEFAULT true",
 ]

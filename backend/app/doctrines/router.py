@@ -43,6 +43,7 @@ class LocationFeeUpdate(_Base):
     broker_fee_pct: float | None = None
     sales_tax_pct: float | None = None
     scc_surcharge_pct: float | None = None
+    use_for_inventory: bool | None = None
     region_id: int | None = None
     system_id: int | None = None
 
@@ -93,6 +94,7 @@ def _loc_dict(loc: Location) -> dict:
         "broker_fee_pct": loc.broker_fee_pct,
         "sales_tax_pct": loc.sales_tax_pct,
         "scc_surcharge_pct": loc.scc_surcharge_pct,
+        "use_for_inventory": loc.use_for_inventory,
     }
 
 def _route_dict(r: FreightRoute) -> dict:
@@ -214,6 +216,8 @@ async def update_location_fees(location_id: int, body: LocationFeeUpdate):
             loc.sales_tax_pct = body.sales_tax_pct
         if body.scc_surcharge_pct is not None:
             loc.scc_surcharge_pct = body.scc_surcharge_pct
+        if body.use_for_inventory is not None:
+            loc.use_for_inventory = body.use_for_inventory
         if body.region_id is not None:
             loc.region_id = body.region_id
         if "system_id" in body.model_fields_set:

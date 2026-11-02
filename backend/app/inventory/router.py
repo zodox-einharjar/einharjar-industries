@@ -310,6 +310,7 @@ async def inventory_list(location_id: int | None = None):
             "location_id": loc.id,
             "location_name": loc.name,
             "system": sys_name,
+            "use_for_inventory": loc.use_for_inventory,
             "fees": {
                 "broker_fee_pct": loc.broker_fee_pct,
                 "sales_tax_pct": loc.sales_tax_pct,

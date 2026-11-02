@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { useTopbarActions } from '@/lib/topbar-context'
+import { useRouteBase } from '@/lib/route-base'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,6 +49,7 @@ interface LocationGroup {
   location_id: number
   location_name: string
   system: string | null
+  use_for_inventory: boolean
   fees: LocationFees
   items: ItemEntry[]
 }
@@ -55,6 +57,7 @@ interface LocationGroup {
 interface LocationTab {
   id: number
   name: string
+  use_for_inventory?: boolean
 }
 
 interface SelectedItem {
@@ -152,6 +155,7 @@ function ItemRow({ item, locationId, selected, onToggle, onTransfer, onSell }: {
   onTransfer: () => void
   onSell: () => void
 }) {
+  const base = useRouteBase()
   return (
     <div
       className={`grid px-2 group hover:bg-surface transition-colors border-b border-wire-dim last:border-b-0 ${selected ? 'bg-surface/50' : ''}`}
@@ -165,14 +169,14 @@ function ItemRow({ item, locationId, selected, onToggle, onTransfer, onSell }: {
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${TYPE_DOT[item.type]}`} />
         <span className="truncate text-primary">{item.name}</span>
         {item.qty_reserved > 0 && item.in_use_projects.map(p => (
-          <Link key={p.id} href={`/industry/${p.id}`}
+          <Link key={p.id} href={`${base}/industry/${p.id}`}
                 className="flex-shrink-0 px-1.5 py-0.5 text-[10px] bg-accent/15 text-accent rounded hover:bg-accent/25 transition-colors whitespace-nowrap"
                 title={`In use by: ${p.name}`}>
             {item.qty_reserved.toLocaleString()} in use
           </Link>
         ))}
         {item.qty_on_market > 0 && (
-          <Link href="/market-orders"
+          <Link href={`${base}/market-orders`}
                 className="flex-shrink-0 px-1.5 py-0.5 text-[10px] bg-eve-amber/15 text-eve-amber rounded hover:bg-eve-amber/25 transition-colors whitespace-nowrap"
                 title={item.on_market_listings.map(l => `${l.qty.toLocaleString()} @ ${iska(l.list_price)}`).join(', ')}>
             {item.qty_on_market.toLocaleString()} on market
@@ -992,6 +996,12 @@ export function InventoryClient() {
 
   const selectionArray = [...selected.values()]
 
+  // Stations switched on under Settings → Locations, plus any switched-off one that still
+  // holds stock (so nothing goes missing). Transfers and imports only target switched-on ones.
+  const inventoryLocs = locations.filter(l => l.use_for_inventory !== false)
+  const stockedIds = new Set(data.map(g => g.location_id))
+  const tabLocs = locations.filter(l => l.use_for_inventory !== false || stockedIds.has(l.id))
+
   if (loading) return <p className="text-muted text-[13px]">Loading…</p>
   if (error)   return <p className="text-eve-red text-[13px]">{error}</p>
 
@@ -1001,7 +1011,7 @@ export function InventoryClient() {
       <div className="flex items-center gap-2 mb-5 flex-wrap">
         <div className="flex gap-1.5 flex-wrap flex-1 min-w-0">
           <button onClick={() => setParam('location', null)} className={activeLocation === null ? BTN_TAB_ACTIVE : BTN_TAB}>All</button>
-          {locations.map(loc => (
+          {tabLocs.map(loc => (
             <button key={loc.id} onClick={() => setParam('location', String(loc.id))}
                     className={activeLocation === loc.id ? BTN_TAB_ACTIVE : BTN_TAB}>
               {loc.name}
@@ -1069,6 +1079,12 @@ export function InventoryClient() {
                   <span className="text-[13px] font-semibold text-primary">{group.location_name}</span>
                   {group.system && (
                     <span className="text-[11px] text-muted">· {group.system}</span>
+                  )}
+                  {!group.use_for_inventory && (
+                    <span className="px-1.5 py-0.5 text-[10px] bg-eve-amber/15 text-eve-amber rounded whitespace-nowrap"
+                          title="Turned off under Settings → Locations. Still listed because it holds stock; once that is moved or sold, it drops off this page.">
+                      Inactive station · leftover stock
+                    </span>
                   )}
                   <span className="text-[11px] text-faint ml-auto mr-2">
                     {group.items.length} item{group.items.length !== 1 ? 's' : ''}
@@ -1154,7 +1170,7 @@ export function InventoryClient() {
                 className="w-full bg-canvas border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
               >
                 <option value="">Select location…</option>
-                {locations.map(l => (
+                {inventoryLocs.map(l => (
                   <option key={l.id} value={l.id}>{l.name}</option>
                 ))}
               </select>
@@ -1186,7 +1202,7 @@ export function InventoryClient() {
       {/* Import modal */}
       {importOpen && (
         <ImportModal
-          locations={locations}
+          locations={inventoryLocs}
           onClose={() => setImportOpen(false)}
           onImported={() => { setImportOpen(false); load() }}
         />

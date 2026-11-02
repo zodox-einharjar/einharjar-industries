@@ -7,6 +7,7 @@ const LINKS = [
   { href: '/v2', label: 'Dashboard', exact: true },
   { href: '/v2/doctrines', label: 'Doctrines' },
   { href: '/v2/buying', label: 'Buying' },
+  { href: '/v2/inventory', label: 'Inventory' },
   { href: '/v2/industry', label: 'Industry' },
   { href: '/v2/market-orders', label: 'Market orders' },
   { href: '/v2/contracts', label: 'Contracts' },

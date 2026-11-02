@@ -339,7 +339,7 @@ export function TrialDashboard() {
         <section className="v2-panel v2-ledger" aria-labelledby="ledger-title">
           <div className="v2-panel-head">
             <h2 id="ledger-title">Ledger</h2>
-            <Link href="/pnl">Full history</Link>
+            <Link href="/v2/inventory/sales">Full history</Link>
           </div>
           {pnl && pnl.daily.length > 0 ? (
             <>

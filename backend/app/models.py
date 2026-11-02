@@ -52,6 +52,9 @@ class Location(Base):
     broker_fee_pct: Mapped[float] = mapped_column(Float, nullable=False, server_default="3.5")
     sales_tax_pct: Mapped[float] = mapped_column(Float, nullable=False, server_default="3.6")
     scc_surcharge_pct: Mapped[float] = mapped_column(Float, nullable=False, server_default="0.0")
+    # Whether this is one of the stations we keep stock at. Off: it drops out of inventory
+    # tabs, transfer targets and import pickers (but still shows while it holds stock).
+    use_for_inventory: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
 
 class FreightRoute(Base):

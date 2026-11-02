@@ -11,7 +11,7 @@ from ..db import AsyncSessionLocal
 from ..inventory.janice_parser import parse_janice_text
 from ..inventory.simple_list_parser import parse_name_qty_text
 from ..models import InventoryLot
-from ..sde import gas_type_ids, portion_sizes, reprocessing_materials
+from ..sde import gas_type_ids, ore_type_ids, portion_sizes, reprocessing_materials
 from ..settings.router import _load_settings
 from .inventory_job import compute_reprocess_job
 from .optimizer import solve_ore_lp
@@ -143,6 +143,9 @@ async def inventory_candidates(location_id: int):
         try:
             sizes = portion_sizes(type_ids)
             mats = reprocessing_materials(type_ids)
+            # Only ore, ice and moon ore (raw or compressed). Modules, ships and the like
+            # also reprocess in EVE, but that's not what this tool is for; gas is excluded too.
+            ore_ids = ore_type_ids(type_ids) - gas_type_ids(type_ids)
         except sqlite3.OperationalError:
             raise HTTPException(
                 503,
@@ -152,7 +155,7 @@ async def inventory_candidates(location_id: int):
 
         candidates = []
         for tid, tid_lots in by_type.items():
-            if tid not in sizes or not mats.get(tid):
+            if tid not in ore_ids or tid not in sizes or not mats.get(tid):
                 continue
             qty = sum(lot.qty_remaining for lot in tid_lots)
             cost = sum(lot.qty_remaining * lot.unit_cost for lot in tid_lots)

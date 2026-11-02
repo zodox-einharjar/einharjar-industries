@@ -30,6 +30,7 @@ interface Location {
   broker_fee_pct: number
   sales_tax_pct: number
   scc_surcharge_pct: number
+  use_for_inventory: boolean
 }
 
 interface Route {
@@ -415,6 +416,16 @@ function LocationsTab() {
                 </div>
                 <button className="v2-x" onClick={() => removeLoc(l)} aria-label={`Remove ${l.name}`} title="Remove location">✕</button>
               </header>
+
+              <Switch
+                on={l.use_for_inventory}
+                label="Inventory station"
+                onChange={v => patchLoc(l.id, { use_for_inventory: v }).catch(e => setError((e as Error).message))}
+              >
+                {l.use_for_inventory
+                  ? 'We keep stock here: it gets an Inventory tab and can be a transfer, import or reprocessing target.'
+                  : 'Not used for stock. It only shows on Inventory while it still holds items.'}
+              </Switch>
 
               <div className="v2-loc-fees">
                 <span className="v2-field-label">Selling fees</span>

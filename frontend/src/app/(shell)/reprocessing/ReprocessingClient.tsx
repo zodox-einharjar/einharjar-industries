@@ -56,6 +56,7 @@ interface OptimizeResponse {
 interface Location {
   id: number
   name: string
+  use_for_inventory?: boolean
 }
 
 interface Candidate {
@@ -454,7 +455,7 @@ function BuyPlannerTab() {
 
 // ── Reprocess inventory tab ───────────────────────────────────────────────────────
 
-function ReprocessInventoryTab() {
+export function ReprocessInventoryTab() {
   const [step, setStep] = useState<'select' | 'preview' | 'done'>('select')
   const [locations, setLocations] = useState<Location[]>([])
   const [locationId, setLocationId] = useState<number | ''>('')
@@ -727,7 +728,7 @@ function ReprocessInventoryTab() {
           className="w-full max-w-xs bg-canvas border border-wire rounded px-3 py-1.5 text-[13px] text-primary focus:outline-none focus:border-accent"
         >
           <option value="">Select location…</option>
-          {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+          {locations.filter(l => l.use_for_inventory !== false).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
         </select>
       </div>
 
@@ -762,7 +763,7 @@ function ReprocessInventoryTab() {
           <p className="text-[12px] text-muted">Loading inventory…</p>
         ) : candidates.length === 0 ? (
           <div className="bg-surface border border-wire rounded p-8 text-center text-muted text-[13px]">
-            No reprocessable items in inventory at this location.
+            No ore, ice or moon ore in inventory at this location.
           </div>
         ) : (
           <div className="border border-wire rounded overflow-x-auto">
