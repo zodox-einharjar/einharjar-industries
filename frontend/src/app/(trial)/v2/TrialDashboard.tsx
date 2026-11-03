@@ -50,8 +50,32 @@ interface Den {
   anarchy_amount: number
   development_level: string
   reinforced_until: string | null
-  active_operation: { dungeon_name: string | null } | null
+  active_operation: { state: string; expires: string; dungeon_name: string | null } | null
+  next_mto_estimate_at: string | null
+  mto_locked: boolean
+  mto_unlock_at: string | null
 }
+
+/** What the den's MTO is doing: available/started now, or when the next one should appear. */
+function mtoLine(d: Den): [string, string] {
+  const op = d.active_operation
+  if (op) return ['op', `MTO ${op.state === 'Started' ? 'started' : 'available'}, ${until(op.expires)} left`]
+  if (d.mto_locked) return ['', d.mto_unlock_at ? `MTOs unlock in ~${until(d.mto_unlock_at)}` : 'MTOs locked until Anarchy 15/20']
+  if (d.next_mto_estimate_at) return ['', `Next MTO in ~${until(d.next_mto_estimate_at)}`]
+  return ['', 'Next MTO unknown']
+}
+
+interface PlanetAlert {
+  character_id: number
+  character_name: string
+  system_name: string | null
+  planet_type: string | null
+  extractor_expiry_at: string | null
+  extractors_idle: boolean
+  storage_fill_pct: number | null
+}
+interface SlotAlert { character_id: number; character_name: string; activity: string; label: string; idle: number; total: number }
+interface CharAlerts { planets: PlanetAlert[]; idle_slots: SlotAlert[] }
 
 interface Notice { key: string; severity: 'danger' | 'warn'; what: string; where: string; act: string; href: string }
 
@@ -84,6 +108,56 @@ function anarchyTier(level: string, amount: number): 'green' | 'yellow' | 'orang
   const idx = parseInt(level.replace('Level', ''), 10) || 0
   if (idx <= 0) return amount >= 15 ? 'yellow' : 'green'
   return idx === 1 ? 'orange' : 'red'
+}
+
+const planetLabel = (p: PlanetAlert) =>
+  `${p.system_name ?? 'Unknown system'} ${p.planet_type ? p.planet_type[0].toUpperCase() + p.planet_type.slice(1) : ''}`.trim()
+
+/** PI and idle-slot alerts, one line per character and problem so ten colonies don't flood the list. */
+function characterNotices(alerts: CharAlerts | null): Notice[] {
+  if (!alerts) return []
+  const out: Notice[] = []
+  const byChar = new Map<number, { name: string; stopped: PlanetAlert[]; expiring: PlanetAlert[]; full: PlanetAlert[] }>()
+  for (const p of alerts.planets) {
+    const g = byChar.get(p.character_id) ?? { name: p.character_name, stopped: [], expiring: [], full: [] }
+    if (p.extractors_idle) g.stopped.push(p)
+    else if (p.extractor_expiry_at) g.expiring.push(p)
+    if (p.storage_fill_pct != null) g.full.push(p)
+    byChar.set(p.character_id, g)
+  }
+  const plural = (n: number) => `${n} planet${n === 1 ? '' : 's'}`
+  byChar.forEach((g, cid) => {
+    if (g.stopped.length) out.push({
+      key: `pi-stopped-${cid}`, severity: 'warn',
+      what: `${g.name}'s extractors have stopped on ${plural(g.stopped.length)}`,
+      where: groupNames(g.stopped.map(planetLabel)),
+      act: 'Restart', href: '/v2/character',
+    })
+    if (g.expiring.length) {
+      const soonest = g.expiring.map(p => p.extractor_expiry_at!).sort()[0]
+      out.push({
+        key: `pi-expiring-${cid}`, severity: 'warn',
+        what: `${g.name}'s extractors stop in ${until(soonest)}`,
+        where: `${plural(g.expiring.length)}: ${groupNames(g.expiring.map(planetLabel))}`,
+        act: 'View colonies', href: '/v2/character',
+      })
+    }
+    if (g.full.length) out.push({
+      key: `pi-full-${cid}`, severity: 'warn',
+      what: `${g.name}'s colony storage is nearly full on ${plural(g.full.length)}`,
+      where: groupNames(g.full.map(p => `${planetLabel(p)} ${Math.round(p.storage_fill_pct!)}%`)),
+      act: 'View colonies', href: '/v2/character',
+    })
+  })
+  const slotsByChar = new Map<number, SlotAlert[]>()
+  alerts.idle_slots.forEach(s => slotsByChar.set(s.character_id, [...(slotsByChar.get(s.character_id) ?? []), s]))
+  slotsByChar.forEach((slots, cid) => out.push({
+    key: `slots-${cid}`, severity: 'warn',
+    what: `${slots[0].character_name} has idle industry slots`,
+    where: slots.map(s => `${s.idle} of ${s.total} ${s.label}`).join(', '),
+    act: 'View jobs', href: '/v2/industry/jobs',
+  }))
+  return out
 }
 
 function getJson<T>(url: string, fallback: T): Promise<T> {
@@ -206,6 +280,7 @@ export function TrialDashboard() {
   const [contracts, setContracts] = useState<Contract[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
   const [dens, setDens] = useState<Den[]>([])
+  const [charAlerts, setCharAlerts] = useState<CharAlerts | null>(null)
 
   const load = useCallback(() => {
     fetch('/api/dashboard')
@@ -218,6 +293,7 @@ export function TrialDashboard() {
     getJson<Contract[]>('/api/contracts', []).then(setContracts)
     getJson<Job[]>('/api/industry/jobs', []).then(setJobs)
     getJson<Den[]>('/api/mercenary/dens', []).then(setDens)
+    getJson<CharAlerts | null>('/api/character/alerts', null).then(setCharAlerts)
   }, [])
 
   useEffect(() => {
@@ -276,6 +352,7 @@ export function TrialDashboard() {
       where: groupNames(deliverable.map(j => j.product_name ?? j.blueprint_name ?? 'Job')),
       act: 'View jobs', href: '/v2/industry/jobs',
     }] : []),
+    ...characterNotices(charAlerts),
     ...dens.filter(d => !d.reinforced_until && anarchyTier(d.anarchy_level, d.anarchy_amount) === 'red').map(d => ({
       key: `anarchy-${d.id}`, severity: 'warn' as const,
       what: `Anarchy is high at ${d.type_name ?? 'a den'}`,
@@ -361,7 +438,7 @@ export function TrialDashboard() {
         <section className="v2-panel" aria-labelledby="status-title">
           <h2 id="status-title">Status</h2>
           {notices.length === 0 ? (
-            <p className="v2-calm">All clear. No contracts, orders, jobs or dens need you.</p>
+            <p className="v2-calm">All clear. No contracts, orders, jobs, colonies or dens need you.</p>
           ) : (
             <ul className="v2-todo">
               {notices.slice(0, 6).map(n => (
@@ -506,18 +583,20 @@ export function TrialDashboard() {
                 const tier = anarchyTier(d.anarchy_level, d.anarchy_amount)
                 const [cls, label] = d.reinforced_until
                   ? ['red', `Reinforced, ${until(d.reinforced_until)} left`]
-                  : d.active_operation
-                    ? ['op', 'Operation running']
-                    : tier === 'green'
-                      ? ['', `Calm, development ${d.development_level.replace('Level', '')}`]
-                      : [tier, tier === 'yellow' ? 'Anarchy rising' : 'Anarchy high']
+                  : tier === 'green'
+                    ? ['', `Calm, development ${d.development_level.replace('Level', '')}`]
+                    : [tier, tier === 'yellow' ? 'Anarchy rising' : 'Anarchy high']
+                const [mtoCls, mto] = mtoLine(d)
                 return (
                   <li key={d.id}>
                     <span>
                       {d.type_name ?? 'Den'}
                       <span className="sub">{d.planet_name}</span>
                     </span>
-                    <span className={`side ${cls}`}>{label}</span>
+                    <span className="side">
+                      <span className={mtoCls}>{mto}</span>
+                      <span className={cls}>{label}</span>
+                    </span>
                   </li>
                 )
               })}

@@ -1,15 +1,18 @@
-from datetime import datetime, timezone
+import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 
 from ..auth.deps import get_current_character
-from ..auth.tokens import get_valid_token
+from ..auth.tokens import TokenExpiredError, get_valid_token
 from ..db import AsyncSessionLocal
 from ..esi.client import esi, ESIError
 from ..models import Character, IndustryJob
 from ..sde import station_name, system_name, type_names, type_group_ids, type_volumes
 from . import pi_constants
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/character", dependencies=[Depends(get_current_character)])
 
@@ -191,61 +194,176 @@ async def planets(char: Character = Depends(get_current_character)):
 
     planet_list = await esi.get(f"/characters/{cid}/planets/", token=token)
 
-    result = []
     now = datetime.now(timezone.utc)
+    result = []
     for p in planet_list:
-        pid = p["planet_id"]
-        try:
-            detail = await esi.get(f"/characters/{cid}/planets/{pid}/", token=token)
-        except ESIError:
-            continue
-
-        pins = detail.get("pins", [])
-        pin_type_ids = list({pin["type_id"] for pin in pins})
-        groups = type_group_ids(pin_type_ids)
-
-        # Soonest extractor expiry across this planet's extraction heads.
-        expiry_times = [
-            datetime.fromisoformat(pin["expiry_time"].replace("Z", "+00:00"))
-            for pin in pins
-            if pin.get("expiry_time")
-        ]
-        soonest_expiry = min(expiry_times) if expiry_times else None
-        extractors_idle = soonest_expiry is not None and soonest_expiry <= now
-
-        # Storage fill % across storage-capable pins (Command Center, Storage
-        # Facility, Launchpad) — content volume vs. hardcoded capacity.
-        content_type_ids = list({
-            item["type_id"] for pin in pins for item in pin.get("contents", [])
-        })
-        volumes = type_volumes(content_type_ids)
-
-        used_m3 = 0.0
-        capacity_m3 = 0.0
-        for pin in pins:
-            group_id = groups.get(pin["type_id"])
-            capacity = pi_constants.PI_STORAGE_CAPACITY_M3.get(group_id)
-            if capacity is None:
-                continue
-            capacity_m3 += capacity
-            for item in pin.get("contents", []):
-                used_m3 += volumes.get(item["type_id"], 0.0) * item["amount"]
-
-        storage_fill_pct = round(used_m3 / capacity_m3 * 100, 1) if capacity_m3 > 0 else None
-
-        result.append({
-            "planet_id": pid,
-            "solar_system_id": p.get("solar_system_id"),
-            "system_name": system_name(p.get("solar_system_id")),
-            "planet_type": p.get("planet_type"),
-            "upgrade_level": p.get("upgrade_level"),
-            "num_pins": p.get("num_pins"),
-            "last_update": p.get("last_update"),
-            "extractor_expiry_at": soonest_expiry.isoformat() if soonest_expiry else None,
-            "extractors_idle": extractors_idle,
-            "storage_used_m3": round(used_m3, 1),
-            "storage_capacity_m3": capacity_m3 or None,
-            "storage_fill_pct": storage_fill_pct,
-        })
+        summary = await _planet_summary(cid, token, p, now)
+        if summary is not None:
+            result.append(summary)
 
     return {"planets": result, "missing_scopes": []}
+
+
+async def _planet_summary(cid: int, token: str, p: dict, now: datetime) -> dict | None:
+    """One colony's extractor expiry and storage fill, or None if ESI won't give the detail."""
+    pid = p["planet_id"]
+    try:
+        detail = await esi.get(f"/characters/{cid}/planets/{pid}/", token=token)
+    except ESIError:
+        return None
+
+    pins = detail.get("pins", [])
+    pin_type_ids = list({pin["type_id"] for pin in pins})
+    groups = type_group_ids(pin_type_ids)
+
+    # Soonest extractor expiry across this planet's extraction heads.
+    expiry_times = [
+        datetime.fromisoformat(pin["expiry_time"].replace("Z", "+00:00"))
+        for pin in pins
+        if pin.get("expiry_time")
+    ]
+    soonest_expiry = min(expiry_times) if expiry_times else None
+    extractors_idle = soonest_expiry is not None and soonest_expiry <= now
+
+    # Storage fill % across storage-capable pins (Command Center, Storage
+    # Facility, Launchpad) — content volume vs. hardcoded capacity.
+    content_type_ids = list({
+        item["type_id"] for pin in pins for item in pin.get("contents", [])
+    })
+    volumes = type_volumes(content_type_ids)
+
+    used_m3 = 0.0
+    capacity_m3 = 0.0
+    for pin in pins:
+        group_id = groups.get(pin["type_id"])
+        capacity = pi_constants.PI_STORAGE_CAPACITY_M3.get(group_id)
+        if capacity is None:
+            continue
+        capacity_m3 += capacity
+        for item in pin.get("contents", []):
+            used_m3 += volumes.get(item["type_id"], 0.0) * item["amount"]
+
+    storage_fill_pct = round(used_m3 / capacity_m3 * 100, 1) if capacity_m3 > 0 else None
+
+    return {
+        "planet_id": pid,
+        "solar_system_id": p.get("solar_system_id"),
+        "system_name": system_name(p.get("solar_system_id")),
+        "planet_type": p.get("planet_type"),
+        "upgrade_level": p.get("upgrade_level"),
+        "num_pins": p.get("num_pins"),
+        "last_update": p.get("last_update"),
+        "extractor_expiry_at": soonest_expiry.isoformat() if soonest_expiry else None,
+        "extractors_idle": extractors_idle,
+        "storage_used_m3": round(used_m3, 1),
+        "storage_capacity_m3": capacity_m3 or None,
+        "storage_fill_pct": storage_fill_pct,
+    }
+
+
+# Dashboard alert thresholds.
+_EXTRACTOR_WARN_WINDOW = timedelta(hours=12)
+# Extractors that stopped longer ago than this are treated as an abandoned colony, not an alert.
+_EXTRACTOR_STALE_AFTER = timedelta(days=7)
+_STORAGE_WARN_PCT = 90.0
+_SLOT_BUCKETS = (
+    ("manufacturing", "manufacturing", pi_constants.MANUFACTURING_SKILLS, {_MANUFACTURING_ACTIVITY}),
+    ("reactions", "reaction", pi_constants.REACTION_SKILLS, {_REACTION_ACTIVITY}),
+    ("science", "science", pi_constants.SCIENCE_SKILLS, _SCIENCE_ACTIVITIES),
+)
+
+
+@router.get("/alerts")
+async def alerts():
+    """PI and idle-slot alerts across every character in the app, for the dashboard's Status panel.
+
+    Characters whose token is dead or who lack a scope are skipped (listed in `skipped`),
+    never fatal. Idle slots only count for a bucket where the character has trained at
+    least one slot skill, so alts that never do industry don't nag.
+    """
+    async with AsyncSessionLocal() as session:
+        chars = (await session.execute(select(Character).order_by(Character.character_name))).scalars().all()
+        busy_rows = (await session.execute(
+            select(IndustryJob.installer_id, IndustryJob.activity_id).where(
+                IndustryJob.status.in_(_SLOT_OCCUPYING_STATUSES),
+            )
+        )).all()
+        tokens: dict[int, str] = {}
+        skipped: list[dict] = []
+        for char in chars:
+            if not char.refresh_token:
+                skipped.append({"character_name": char.character_name, "reason": "not signed in"})
+                continue
+            try:
+                tokens[char.character_id] = await get_valid_token(char, session)
+            except TokenExpiredError:
+                skipped.append({"character_name": char.character_name, "reason": "login expired"})
+            except Exception as e:  # SSO down, network — skip this character, keep the rest
+                log.warning("alerts: token refresh failed for %s: %s", char.character_name, e)
+                skipped.append({"character_name": char.character_name, "reason": "token refresh failed"})
+
+    busy: dict[int, dict[int, int]] = {}
+    for installer_id, activity_id in busy_rows:
+        per = busy.setdefault(installer_id, {})
+        per[activity_id] = per.get(activity_id, 0) + 1
+
+    now = datetime.now(timezone.utc)
+    planets_out: list[dict] = []
+    slots_out: list[dict] = []
+
+    for char in chars:
+        cid = char.character_id
+        token = tokens.get(cid)
+        if token is None:
+            continue
+
+        if not _missing(char, _PLANETS_SCOPES):
+            try:
+                planet_list = await esi.get(f"/characters/{cid}/planets/", token=token)
+            except ESIError:
+                planet_list = []
+            for p in planet_list:
+                summary = await _planet_summary(cid, token, p, now)
+                if summary is None:
+                    continue
+                expiry = summary["extractor_expiry_at"]
+                expiry_dt = datetime.fromisoformat(expiry) if expiry else None
+                expiring = (
+                    expiry_dt is not None
+                    and now - _EXTRACTOR_STALE_AFTER <= expiry_dt <= now + _EXTRACTOR_WARN_WINDOW
+                )
+                full = (summary["storage_fill_pct"] or 0) >= _STORAGE_WARN_PCT
+                if expiring or full:
+                    planets_out.append({
+                        "character_id": cid,
+                        "character_name": char.character_name,
+                        "system_name": summary["system_name"],
+                        "planet_type": summary["planet_type"],
+                        "extractor_expiry_at": expiry if expiring else None,
+                        "extractors_idle": summary["extractors_idle"],
+                        "storage_fill_pct": summary["storage_fill_pct"] if full else None,
+                    })
+
+        if not _missing(char, _SKILLS_SCOPES):
+            try:
+                skills_data = await esi.get(f"/characters/{cid}/skills/", token=token)
+            except ESIError:
+                skills_data = {}
+            levels = {s["skill_id"]: s["active_skill_level"] for s in skills_data.get("skills", [])}
+            used = busy.get(cid, {})
+            for key, label, skill_ids, activities in _SLOT_BUCKETS:
+                if not any(levels.get(sid, 0) for sid in skill_ids):
+                    continue
+                total = _slot_bucket(levels, skill_ids)
+                in_use = sum(used.get(a, 0) for a in activities)
+                if in_use < total:
+                    slots_out.append({
+                        "character_id": cid,
+                        "character_name": char.character_name,
+                        "activity": key,
+                        "label": label,
+                        "idle": total - in_use,
+                        "total": total,
+                    })
+
+    return {"planets": planets_out, "idle_slots": slots_out, "skipped": skipped}

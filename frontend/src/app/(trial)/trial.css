@@ -346,8 +346,8 @@
 .v2-rows .side .val { color: var(--bone); font-size: 14px; font-weight: 600; }
 .v2-rows .red, .v2-rows .side.red { color: var(--flare); }
 .v2-rows .orange, .v2-rows .side.orange { color: var(--amber); }
-.v2-rows .side.yellow { color: var(--brass); }
-.v2-rows .side.op { color: var(--sage); }
+.v2-rows .side.yellow, .v2-rows .side .yellow { color: var(--brass); }
+.v2-rows .side.op, .v2-rows .side .op { color: var(--sage); }
 
 .v2-empty { color: var(--dim); padding: 12px 0; border-top: 1px solid var(--seam); margin: 0; }
 .v2-stale { color: var(--amber); }
