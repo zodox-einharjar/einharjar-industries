@@ -42,7 +42,12 @@ async def list_contracts():
 
     result = []
     for c in contracts:
-        if c.issuer_id in our_char_ids or c.issuer_corporation_id in our_corp_ids:
+        # A contract assigned to one of us (or our corp) by someone else is incoming,
+        # even when the issuer is a corpmate — issuer_corporation_id alone can't tell.
+        assigned_to_us = c.assignee_id in our_char_ids or c.assignee_id in our_corp_ids
+        if assigned_to_us and c.issuer_id not in our_char_ids:
+            direction = "incoming"
+        elif c.issuer_id in our_char_ids or c.issuer_corporation_id in our_corp_ids:
             direction = "outgoing"
         else:
             direction = "incoming"
