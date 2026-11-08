@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, Numeric, Text, TIMESTAMP
+from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, Numeric, Text, TIMESTAMP, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -310,6 +310,24 @@ class MarketListing(Base):
     last_synced: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
 
     character: Mapped["Character"] = relationship(foreign_keys=[character_id])
+
+
+class ListingFeeCharge(Base):
+    """A listing fee added to stock cost: fees on units left unsold when an order ended
+    ("unsold"), or the fee for changing an order's price ("reprice")."""
+    __tablename__ = "listing_fee_charges"
+    __table_args__ = (UniqueConstraint("order_id", "kind", "order_issued"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    order_issued: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    type_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id", ondelete="SET NULL"), nullable=True)
+    qty: Mapped[int] = mapped_column(Integer, nullable=False)
+    qty_charged: Mapped[int] = mapped_column(Integer, nullable=False)  # units found in stock
+    amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
+    charged_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
 
 
 class Contract(Base):

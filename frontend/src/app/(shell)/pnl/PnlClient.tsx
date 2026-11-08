@@ -33,6 +33,7 @@ interface Entry {
 interface Summary {
   total_revenue: number
   total_cost: number
+  total_fees: number
   total_profit: number
   roi_pct: number
   sold_count: number
@@ -151,6 +152,7 @@ export function PnlClient() {
             {[
               { label: 'Revenue',  value: iska(data.summary.total_revenue), color: '' },
               { label: 'Cost',     value: iska(data.summary.total_cost),    color: 'text-muted' },
+              { label: 'Fees',     value: iska(data.summary.total_fees),    color: 'text-muted' },
               { label: 'Profit',   value: (data.summary.total_profit >= 0 ? '+' : '') + iska(data.summary.total_profit), color: data.summary.total_profit >= 0 ? 'text-eve-green' : 'text-eve-red' },
               { label: 'ROI',      value: (data.summary.roi_pct >= 0 ? '+' : '') + data.summary.roi_pct.toFixed(1) + '%', color: data.summary.roi_pct >= 0 ? 'text-eve-green' : 'text-eve-red' },
             ].map(c => (

@@ -687,3 +687,19 @@
 .v2-nosupply .name:hover { text-decoration: underline; }
 .v2-list-scroll { overflow-x: auto; }
 .v2-table .small { font-size: 12px; }
+
+/* Inventory → To list */
+.v2-tolist { display: flex; flex-direction: column; gap: 14px; }
+.v2-tolist-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.v2-tolist-spacer { flex: 1; }
+.v2-tolist-note { font-size: 12px; color: var(--dust); }
+.v2-tolist-note.warn { color: var(--amber); }
+.v2-tolist .up { color: var(--sage); }
+.v2-tolist .down { color: var(--flare); }
+.v2-price-opts { display: flex; align-items: center; gap: 6px; }
+.v2-price-opts .v2-qty { width: 58px; }
+.v2-price-opts .v2-chip:disabled { opacity: 0.35; cursor: default; }
+.v2-qty.v2-price { width: 130px; text-align: right; }
+.v2-tolist .v2-textarea { font-family: monospace; width: 100%; }
+.v2-tolist .v2-table-wrap { overflow-y: hidden; }
+.v2-of-available { margin-left: 8px; }

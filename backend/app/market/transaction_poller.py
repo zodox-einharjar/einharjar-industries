@@ -112,7 +112,8 @@ async def _process_transactions(
             .where(MarketListing.type_id == tx["type_id"])
             .where(MarketListing.eve_location_id == tx["location_id"])
             .where(MarketListing.status == "active")
-        )).scalar_one_or_none()
+            .order_by(MarketListing.issued)
+        )).scalars().first()  # a relisted item can have several active orders
         if listing:
             qty_sold = tx["quantity"] - qty_remaining
             listing.qty_remaining = max(0, listing.qty_remaining - qty_sold)

@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { MarketFreshness, Selection, TriCheckbox, isk } from '../_shared/doctrines'
-import { Switch } from '../_shared/ui'
+import { CopyButton, Switch } from '../_shared/ui'
 import { Th, sortRows, useSort } from '../_shared/sort'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -42,6 +42,7 @@ interface Purchase {
   unit_price: number | null
   freight_per_unit: number | null
   sold_30d: number | null
+  buyback_available: number | null
 }
 
 interface Need {
@@ -131,36 +132,10 @@ function saveJson(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value))
 }
 
-async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard && window.isSecureContext) {
-    await navigator.clipboard.writeText(text)
-  } else {
-    const el = document.createElement('textarea')
-    el.value = text
-    el.style.cssText = 'position:fixed;opacity:0'
-    document.body.appendChild(el)
-    el.focus(); el.select()
-    document.execCommand('copy')
-    document.body.removeChild(el)
-  }
-}
-
 function multibuy(items: { name: string; qty: number }[]): string {
   return items.filter(i => i.qty > 0).map(i => `${i.name} x${i.qty}`).join('\n')
 }
 
-function CopyButton({ text, label, primary }: { text: string; label: string; primary?: boolean }) {
-  const [done, setDone] = useState(false)
-  return (
-    <button
-      className={primary ? 'v2-btn primary' : 'v2-btn'}
-      disabled={!text}
-      onClick={async () => { await copyText(text); setDone(true); setTimeout(() => setDone(false), 1500) }}
-    >
-      {done ? 'Copied' : label}
-    </button>
-  )
-}
 
 
 // ── Doctrine scope picker ─────────────────────────────────────────────────────
@@ -380,6 +355,11 @@ function ShoppingList({ ch, items, locationId, deselected, onToggle, needByType,
                       ? <QtyInput need={need} locationId={locationId} onQty={onQty}
                           value={p.qty} others={Math.max(0, need.covered - p.qty)} />
                       : p.qty.toLocaleString('en-US')}
+                    {p.buyback_available != null && (
+                      <span className="muted v2-of-available" title="To buy / available on this buyback">
+                        {p.qty.toLocaleString('en-US')}/{p.buyback_available.toLocaleString('en-US')}
+                      </span>
+                    )}
                   </td>
                   <td className="num">{isk(p.unit_price)}</td>
                   {anyFreight && <td className="num muted">{p.freight_per_unit ? isk(p.freight_per_unit) : '–'}</td>}

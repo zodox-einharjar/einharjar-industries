@@ -199,8 +199,10 @@ async def build_buying_plan(session, inp: PlanInputs) -> dict:
     # Shared pools, drawn down as each location's plan consumes them.
     jita_left = {o.order_id: o.volume_remain for lst in jita_orders.values() for o in lst}
     buyback_left: dict[int, list[list[float]]] = {}
+    buyback_total: dict[int, int] = {}  # whole offer per item; buyback_left gets drawn down
     for b in inp.buyback:
         buyback_left.setdefault(b["type_id"], []).append([float(b["unit_price"]), b["qty"]])
+        buyback_total[b["type_id"]] = buyback_total.get(b["type_id"], 0) + int(b["qty"])
 
     locations_out = []
     ordered = sorted(dest_ids, key=lambda lid: -sum(r["qty"] for (l, _), r in active.items() if l == lid))
@@ -312,6 +314,7 @@ async def build_buying_plan(session, inp: PlanInputs) -> dict:
         purchase_list = sorted(purchases.values(), key=lambda p: (p["channel"], -p["cost"]))
         for p in purchase_list:
             p["unit_cost"] = p["cost"] / p["qty"] if p["qty"] else None
+            p["buyback_available"] = buyback_total.get(p["type_id"]) if p["channel"] == "buyback" else None
             # Split of unit_cost: what the seller is paid vs. freight to this location.
             p["unit_price"] = p["raw_cost"] / p["qty"] if p["qty"] else None
             p["freight_per_unit"] = (p["cost"] - p["raw_cost"]) / p["qty"] if p["qty"] else None
