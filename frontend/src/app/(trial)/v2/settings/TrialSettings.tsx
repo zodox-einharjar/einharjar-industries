@@ -69,6 +69,7 @@ interface AppSettings extends Record<PollKey, number[]> {
   reprocessing_efficiency_pct: number
   reprocessing_gas_efficiency_pct: number
   reprocessing_fee_pct: number
+  relist_discount_pct: number
 }
 
 interface WalletSources {
@@ -686,6 +687,12 @@ function GeneralTab() {
         <label className="v2-inline">Ore and ice yield <NumberCell value={s.reprocessing_efficiency_pct} suffix="%" label="Ore and ice yield" onSave={v => patch({ reprocessing_efficiency_pct: v })} /></label>
         <label className="v2-inline">Gas yield <NumberCell value={s.reprocessing_gas_efficiency_pct} suffix="%" label="Gas yield" onSave={v => patch({ reprocessing_gas_efficiency_pct: v })} /></label>
         <label className="v2-inline">Station fee <NumberCell value={s.reprocessing_fee_pct} suffix="% of output value" label="Station fee" onSave={v => patch({ reprocessing_fee_pct: v })} /></label>
+      </section>
+
+      <section className="v2-field">
+        <span className="v2-field-label">Market orders</span>
+        <p className="muted small">Discount on the broker fee when you change an order&apos;s price: 50% base, plus your Advanced Broker Relations skill. Used to add repricing fees to your stock cost.</p>
+        <label className="v2-inline">Relist discount <NumberCell value={s.relist_discount_pct} suffix="%" label="Relist discount" onSave={v => patch({ relist_discount_pct: v })} /></label>
       </section>
 
       <section className="v2-field">

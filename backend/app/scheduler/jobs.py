@@ -7,7 +7,7 @@ _scheduler = AsyncIOScheduler(timezone="UTC")
 
 async def start_scheduler() -> None:
     from ..market.poller import poll_all_locations
-    from ..market.orders_poller import poll_character_orders
+    from ..market.orders_poller import poll_character_orders, poll_order_history
     from ..market.transaction_poller import poll_wallet_transactions
     from ..contracts.poller import poll_contracts
     from ..industry_jobs.poller import poll_industry_jobs
@@ -39,6 +39,10 @@ async def start_scheduler() -> None:
         replace_existing=True, next_run_time=first_run,
     )
     _scheduler.add_job(poll_character_orders, "interval", minutes=5, id="poll_orders", replace_existing=True)
+    _scheduler.add_job(
+        poll_order_history, "interval", minutes=60, id="poll_order_history", replace_existing=True,
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=120),
+    )
     _scheduler.add_job(poll_wallet_transactions, "interval", minutes=5, id="poll_transactions", replace_existing=True)
     _scheduler.add_job(poll_contracts, "interval", minutes=5, id="poll_contracts", replace_existing=True)
     _scheduler.add_job(poll_industry_jobs, "interval", minutes=5, id="poll_industry_jobs", replace_existing=True)

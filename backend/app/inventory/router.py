@@ -335,6 +335,10 @@ async def pnl_history(days: int | None = None):
                 InventoryLot.item_name,
                 InventoryLot.type_id,
                 Location.name.label("location_name"),
+                InventorySale.source,
+                Location.broker_fee_pct,
+                Location.sales_tax_pct,
+                Location.scc_surcharge_pct,
             )
             .join(InventoryLot, InventorySale.lot_id == InventoryLot.id)
             .join(Location, InventoryLot.location_id == Location.id)
@@ -354,6 +358,12 @@ async def pnl_history(days: int | None = None):
         revenue = unit_sell * row.qty
         cost = unit_cost * row.qty
         has_price = unit_sell > 0
+        # Market sales pay broker fee, SCC and sales tax; contracts don't.
+        fees = (
+            revenue * (row.broker_fee_pct + row.sales_tax_pct + row.scc_surcharge_pct) / 100
+            if row.source == "market" else 0.0
+        )
+        profit = revenue - cost - fees
 
         entries.append({
             "id": row.id,
@@ -365,7 +375,8 @@ async def pnl_history(days: int | None = None):
             "unit_sell_price": unit_sell,
             "revenue": round(revenue, 2) if has_price else None,
             "cost": round(cost, 2),
-            "profit": round(revenue - cost, 2) if has_price else None,
+            "fees": round(fees, 2) if has_price else None,
+            "profit": round(profit, 2) if has_price else None,
             "location_name": row.location_name,
         })
 
@@ -373,7 +384,7 @@ async def pnl_history(days: int | None = None):
             d = daily.setdefault(date_str, {"date": date_str, "revenue": 0.0, "cost": 0.0, "profit": 0.0})
             d["revenue"] += revenue
             d["cost"] += cost
-            d["profit"] += revenue - cost
+            d["profit"] += profit
 
     sorted_daily = sorted(daily.values(), key=lambda x: x["date"])
     cumulative = 0.0
@@ -387,7 +398,8 @@ async def pnl_history(days: int | None = None):
     priced = [e for e in entries if e["profit"] is not None]
     total_revenue = sum(e["revenue"] for e in priced)
     total_cost = sum(e["cost"] for e in priced)
-    total_profit = total_revenue - total_cost
+    total_fees = sum(e["fees"] for e in priced)
+    total_profit = total_revenue - total_cost - total_fees
 
     return {
         "daily": sorted_daily,
@@ -395,6 +407,7 @@ async def pnl_history(days: int | None = None):
         "summary": {
             "total_revenue": round(total_revenue, 2),
             "total_cost": round(total_cost, 2),
+            "total_fees": round(total_fees, 2),
             "total_profit": round(total_profit, 2),
             "roi_pct": round(total_profit / total_cost * 100, 2) if total_cost > 0 else 0.0,
             "sold_count": len(entries),
